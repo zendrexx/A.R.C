@@ -1,17 +1,25 @@
 # A.R.C. — Agent Recall & Continuity
 
-A.R.C. is a local development-memory prototype. It records **selected** Git state, explicit notes, task claims, and configured test results in SQLite. A local Ollama embedding model makes those records searchable by meaning. A stdio MCP server lets a new Codex session request an evidence-backed project handoff.
+**Pick up a project without rebuilding its history from old chats.** A.R.C. keeps a local, searchable record of your development sessions, decisions, Git changes, tasks, tests, and debugging attempts. It uses that record to show what happened, what remains unfinished, and which source events support each answer.
 
-The CLI and MCP evidence store now also supports opt-in Git observation, automatic indexing, paginated history, and cited local answers. The VS Code extension integrates these features. The [product plan](docs/DEVELOPMENT_PLAN.md) describes the broader vision; [Phase 12 validation](docs/PHASE_12_VALIDATION.md) records the remaining release gates.
+A.R.C. is an active prototype for macOS. It includes a command-line app, a local web dashboard, a VS Code extension, and an MCP server for coding agents such as Codex. The [development plan](docs/DEVELOPMENT_PLAN.md) describes the product goals; the [validation checklist](docs/PHASE_12_VALIDATION.md) shows which real-machine checks are still open.
 
+## What A.R.C. helps you do
 
-One developer owns implementation; the teammate owns documentation, test records, and video promotion. Use the [project workflow](docs/PROJECT_WORKFLOW.md) for the current commands and implementation order, the [documentation/video checklist](docs/DOCUMENTATION_AND_VIDEO.md) for presentation work, and the [test evidence log](docs/TEST_RESULTS.md) for recorded results. A.R.C. reads local Git state; a Git push is needed only to share source or documentation between machines.
+1. **Remember project context.** Save decisions, errors, attempted fixes, sessions, and selected Git activity. Search the record by meaning with a local embedding model, or use keyword search without a model.
+2. **Hand off work to the next session.** `arc handoff` shows unfinished tasks, current evidence, the latest session, and selected decisions and failures with event references. A new coding agent can request the same handoff through MCP.
+3. **Ask about recorded work.** `arc chat` answers with exact recorded summaries and citations. The local `qwen3:1.7b` model selects relevant sources; A.R.C. does not generate a free-form story or treat an agent's claim as proof.
+4. **Check progress before calling it done.** Link a task to observed Git changes and a configured test run. A.R.C. distinguishes planned, observed, tested, and explicitly confirmed work. Old tests become historical when the Git fingerprint changes.
+5. **See the project in one place.** The browser dashboard shows the handoff, tasks and evidence, search, timeline, checkpoints, incidents, and local AI status. The VS Code extension adds Memory and Chat views in the editor.
+6. **Collect routine changes automatically when you choose.** An opt-in observer records eligible Git path changes and commits, coalesces repeated saves, and indexes pending summaries locally. It does not run tests or infer why a change was made; record those explicitly.
 
-The [VS Code extension](extension/README.md) provides Memory and Chat views, project selection, observation controls, configured test execution, and source inspection. Answers quote recorded evidence; optional local `qwen3:1.7b` selects relevant sources. Free-form generated summaries are not implemented.
+Everything A.R.C. records lives in a local SQLite database. Git observation stores paths, commit metadata, and a fingerprint, not file bodies or diffs. A.R.C. can work after installation without an internet connection when its local Ollama models are already downloaded. The [recorded offline trial](docs/PHASE_12_VALIDATION.md#physical-offline-trial--2026-10-10) covers CLI search, cited chat, and a fresh MCP handoff.
 
 ## Set up on macOS
 
-Python 3.11, Git, and Ollama are required. The first package install and model pull need internet. In a terminal at the repository root:
+Use macOS 14+, Python 3.11+, and Git. The CLI and dashboard use Python; semantic search needs a running local [Ollama](https://ollama.com/) server with `all-minilm`. Model-assisted chat and the VS Code Chat view also need `qwen3:1.7b`. VS Code 1.90+ and Node.js/npm are needed only for the extension. The project is being validated on an M1 Mac with 8 GB of memory; that is a test target, not a proven minimum. The first package install and model downloads need internet.
+
+From the A.R.C. repository root:
 
 ```bash
 brew install python@3.11 ollama
@@ -19,150 +27,121 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install '.[dev]'
 arc --help
+```
+
+Start Ollama in a separate terminal and leave it running. If Ollama is already serving on `127.0.0.1:11434`, use that instance instead.
+
+```bash
 OLLAMA_NO_CLOUD=1 ollama serve
 ```
 
-The regular package install avoids a macOS issue on this machine where Python skips the hidden `.pth` file created by an editable install. If you already installed with `pip install -e` and `arc` fails with `ModuleNotFoundError: No module named 'arc'`, run `python -m pip install --no-deps --force-reinstall .` in the active virtual environment, then retry `arc --help`. Reinstall after changing A.R.C. source code so the installed command uses the new code.
-
-Leave Ollama running in that terminal. `OLLAMA_NO_CLOUD=1` disables Ollama cloud features; the local embedding model still runs on your computer. Open another terminal at the repository root:
+Back in the activated environment at the repository root, download the local models and register this Git repository:
 
 ```bash
-source .venv/bin/activate
 ollama pull all-minilm
+ollama pull qwen3:1.7b
+ollama list
+curl -fsS http://127.0.0.1:11434/api/tags
 export ARC_DB="$PWD/.arc/arc.sqlite3"
 arc init --test-command "$PWD/.venv/bin/python -m pytest -q"
+arc ai-status
 arc state
 ```
 
-`arc index` sends the selected event summaries only to Ollama on `127.0.0.1`. Default search keeps cosine-ranked semantic results and says `"mode": "semantic"`. If Ollama is unavailable or records have not been indexed, ordinary search labels its FTS5 results `keyword_fallback`; `--semantic-only` instead requires the model and reports when indexing is needed. An enabled observer indexes small batches automatically and retries pending records after model outages.
+`ARC_DB` chooses the SQLite file shared by the CLI, dashboard, extension, and MCP server. Export it again in each new terminal, or set the extension's **A.R.C.: Database Path** to the same absolute path. Without `ARC_DB`, the CLI uses its application-data default. To register another Git repository in this database, use `arc --project /absolute/path/to/repository init` and optionally add its own `--test-command`. Run later CLI commands with the same `--project` option. The test command is an approved executable and arguments, not shell syntax.
 
-## Open the local dashboard
+The regular package install is intentional: an editable install on the validation Mac can leave `arc` unable to import its package. After editing A.R.C.'s Python source, run `python -m pip install --no-deps --force-reinstall .` before using the installed command again.
 
-After the setup above, run this from the repository root:
+### First use: record, find, and hand off work
+
+Run these from the registered project with the same `ARC_DB`:
 
 ```bash
-source .venv/bin/activate
-export ARC_DB="$PWD/.arc/arc.sqlite3"
+arc session start "Project work"
+arc note --kind decision "Describe a real decision and why you made it"
+arc capture                         # record eligible current Git changes
+arc test                            # run the test command configured at init
+arc index                           # make new records semantically searchable
+arc search "Why did we make that decision?"
+arc handoff
+arc chat "Where did we leave off?"
+arc session end
+```
+
+Use your actual decision in the note. `arc capture` records paths and a Git fingerprint, including eligible uncommitted work; it does not save source code. `arc test` records the configured command, exit code, fingerprint, and a redacted output tail. `arc handoff` works directly from SQLite without indexing or Ollama. If Ollama is unavailable, `arc search "query" --keyword-only` and `arc chat "question" --keyword-only` still show recorded keyword evidence. Model-assisted chat requires the local chat model even when the question is about the timeline.
+
+## Open the web dashboard
+
+With the virtual environment active and `ARC_DB` set as above:
+
+```bash
 arc dashboard
 ```
 
-The command opens `http://127.0.0.1:8765/` in your browser. Keep that terminal open; press `Ctrl+C` to stop the dashboard. If the browser does not open, copy the address printed by the command. Use `arc dashboard --no-browser --port 8766` if you want to open it yourself or port 8765 is occupied. The browser shows registered projects, source-linked handoff, search, task evidence, timeline, checkpoints, incidents, and local AI status. The Settings view can pause new manual records and permanently clear one project's A.R.C. memory after you type its exact confirmation phrase. Deletion keeps your source files and project registration.
+Open `http://127.0.0.1:8765/` if the browser does not open automatically. Keep the command running while using the dashboard; press `Ctrl+C` to stop it. Use `arc dashboard --no-browser --port 8766` if you need another port.
 
-The dashboard runs only on loopback and uses the same `ArcService` and SQLite database as the CLI and MCP server. It does not start sessions, run tests, watch files, or index new events on its own. Use `arc watch`, `arc capture`, `arc test`, and `arc index` to record and index development activity. The dashboard's **Index pending events** button runs the same local indexing operation. Its **Check local model** button tests `all-minilm` on your computer; the rest of the dashboard is usable without Ollama.
+The dashboard lets you select or register a local Git project, review the handoff, inspect source events and task evidence, search memory, browse a timeline, save candidate checkpoints, and revisit incidents. **Settings & privacy** can check the local embedding model, index pending events, pause new manual records, or clear one project's A.R.C. memory after an exact confirmation. Clearing memory leaves the source files and project registration in place. The dashboard serves only on this computer's loopback address. It reads recorded activity; keep using the CLI or extension for Git observation and configured tests.
 
-The setup commands register the real project database without adding sample incidents. For a separate example run, use the [first hands-on test](#first-hands-on-test). For actual development, start a session and follow [the current-use steps](docs/PROJECT_WORKFLOW.md#use-the-current-prototype).
+## Turn on automatic observation
 
-Use `arc search "database upgrade" --kind error` to filter by event type. Use `--keyword-only` to search without Ollama, or `--hybrid` to combine semantic and exact keyword rankings. Results include indexed and pending record counts; `score_kind` identifies how each ranking score was computed, and scores are not probabilities.
+After registering a project, run:
+
+```bash
+arc observer start
+arc observer status
+```
+
+`start` enables observation and launches a detached worker. It polls eligible Git state about every five seconds, records new reachable commits after a worker restart, and retries small batches of pending local indexing. The worker creates an observation session when needed. It skips generated and sensitive paths such as `.env`, keys, and `.arc/`; a Git push is not required. Edits made and reverted between polls may be missed. Tests run outside `arc test` or the extension are not recorded as verified tests.
+
+Use `arc observer pause` to stop collecting temporarily, `arc observer resume` to start from the current state, and `arc observer stop` to disable observation and terminate the worker. Activity during a pause is not imported on resume. For a foreground worker, run `arc observer enable` followed by `arc watch`. In VS Code, **Enable Automatic Observation** starts and supervises the worker for the connected project, so you do not need a separate terminal worker there.
 
 ## Record real project progress
 
-Use `arc --project /absolute/path/to/repository ...` to select a different Git project. Registration is explicit. The configured test command is an executable plus arguments; A.R.C. never executes a command found in a note or agent response.
+Create a task and save its returned ID, then attach evidence after making a relevant code change:
 
 ```bash
-printf 'Task title: '
-read -r task_title
-task_id="$(arc task add "$task_title" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-printf 'Saved task ID: %s\n' "$task_id"
-arc task review "$task_id"
-```
-
-After making a relevant code change, record and review its evidence:
-
-```bash
+task_id="$(arc task add "Describe the real task" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+arc task claim "$task_id" "Describe the intended work"    # an unverified claim
+# Make the code change here.
 arc capture --task "$task_id"
 arc test --task "$task_id"
 arc task review "$task_id"
-arc handoff
+arc task confirm "$task_id"                               # after review and a current passing test
 ```
 
-A claim alone remains **planned**. A linked Git observation can raise it to **implementation observed**. A passing configured test at the current Git fingerprint raises it to **tests passed**. After reviewing the task, `arc task confirm "$task_id"` marks it **completed/confirmed**. If the project changes afterward, the earlier test is no longer shown as current evidence. `arc checkpoint` saves an **unconfirmed candidate** and reports when it becomes stale.
-
-`arc task review "$task_id"` lists current requirements, missing checks, and source-linked evidence. If a task needs a downward correction, use `arc task correct "$task_id" --to planned --reason "Previous status was inaccurate"` or `--to implementation_observed --reason "The test needs repeating"`. The second choice requires a linked Git observation. Corrections invalidate earlier tests and confirmations; they cannot create a passing test or confirmation. A confirmation from an older Git fingerprint must be repeated after new code and a new passing test.
-
-`arc capture` records changed paths and a Git fingerprint; it does not store source files or a Git diff. `arc test` stores the configured command, exit code, fingerprint, and a redacted tail of output. Avoid putting secrets in the configured command.
-
-## First-class handoff and local incident workflows
-
-`arc handoff` lists unfinished tasks, currently confirmed tasks, the latest session (even after it ends), and up to six selected source-linked events. Decisions, failures, attempts, and reported resolutions get priority; agent claims remain labelled unverified. `suggested_next_task` is a recommendation from recorded task state and recent activity, not an assertion about your intent. Use `arc handoff --limit 10` to show more selected events. This handoff reads SQLite and Git locally and does not require `arc index` or Ollama; it cannot recover work you have not recorded.
+`arc task review` shows supporting events and missing checks. A claim stays unverified; a confirmation requires linked observed changes and a passing configured test at the current Git fingerprint. If the code changes or you commit afterward, rerun the test before relying on the old result as current. Use `arc task correct TASK_ID --to planned --reason "..."` to record a downward correction. The [project workflow](docs/PROJECT_WORKFLOW.md) has the full task and session rhythm.
 
 ## Remember a debugging incident
 
-Start with a real error note. The commands below save returned IDs so they can be reused without typing them manually:
+Save an error, link attempts, and record a reported resolution so a later session can find the experience:
 
 ```bash
-error_id="$(arc note --kind error "SQLite migration failed because users table was missing" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-incident_id="$(arc incident open "$error_id" --cause "missing users table" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-arc incident attempt "$incident_id" "Checked the migration order" --outcome helped
-# After an actual fix, record the configured test and report the resolution:
-test_id="$(arc test | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
-arc incident resolve "$incident_id" "Created users table before migration" --test-event "$test_id"
+error_id="$(arc note --kind error "Describe the actual error" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+incident_id="$(arc incident open "$error_id" --cause "Known cause, if established" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+arc incident attempt "$incident_id" "Describe what you tried" --outcome helped
+arc incident resolve "$incident_id" "Describe the fix you applied"
 arc incident show "$incident_id"
 arc index
-arc incident search "Database upgrade crashed: missing users table during migration" --cause "missing users table"
+arc incident search "Describe a similar error"
 ```
 
-Use `arc incident link-attempt INCIDENT_ID ATTEMPT_EVENT_ID --outcome failed` for a pre-existing attempt note, and `arc incident list` to inspect recorded incidents. A reported resolution is an explicit statement, not an automatic proof of a fix. A linked test must have passed after the error at the current Git fingerprint when attached; later changes mark it historical. Search returns **candidates**, separates explicitly different recorded causes, and rejects weak semantic matches. If the new cause is unknown, omit `--cause` and inspect the history before reusing an earlier resolution. New incident events need `arc index` before semantic search; without Ollama, a conservative keyword fallback remains available.
+Omit `--cause` if the cause is unknown. A reported resolution is a record of what someone said worked, not automatic proof of a fix. Search returns candidates and keeps explicitly different causes separate. You can attach a passing current test to a resolution with `--test-event TEST_ID`; see `arc incident resolve --help` and the [implementation notes](docs/IMPLEMENTATION.md).
 
-**No GitHub push is needed.** A.R.C. reads the local Git repository, including eligible uncommitted edits and untracked files. Manual commands remain available: `arc capture`, `arc test`, and `arc index`. Automatic observation requires an explicit opt-in and an active worker.
+## Use A.R.C. in VS Code
 
-## Observe and ask locally
-
-After registering the project, use the same database for CLI, extension, and MCP:
+The extension is currently run from source. Install VS Code 1.90+ and Node.js/npm, then:
 
 ```bash
-arc observer enable
-arc observer-watch
+cd extension
+npm ci
+npm test
 ```
 
-The worker polls eligible Git state every five seconds, coalesces unchanged saves, records reachable commits made while it was stopped, and retries indexing two records at a time. It creates an observation session if no session is active. Sessions remain open across worker restarts; `arc session end` closes one explicitly. `arc observer start` runs the same worker detached — no terminal stays open — and `arc observer stop` disables observation and terminates it. The VS Code extension supervises `arc watch` itself, so no extra launcher is needed there. Other controls and queries run from any terminal:
+Open this `extension/` folder in VS Code and press **F5**. In the Extension Development Host, open your target Git project. Select the A.R.C. activity bar icon, then **Connect Project** or **Create Project**. Set **A.R.C.: Python Path** if the extension cannot find the environment containing `arc-memory`; set **A.R.C.: Database Path** to the same absolute SQLite path used by the CLI. The Memory view shows tasks, changes, events, checkpoints, and observer status. The Chat view answers from cited records and offers **Inspect** on each source. [Extension setup and controls](extension/README.md) has the full walkthrough.
 
-```bash
-arc observer start   # detached worker; its log path is printed
-arc observer status  # enable/pause state, worker liveness, Git cursor
-arc observer stop    # disable observation and terminate the worker
-arc observer pause
-arc observer resume
-arc observer disable
-arc timeline --kind test --since 2026-10-01 --until 2026-10-10
-arc chat "Where did we leave off?" --keyword-only
-arc chat "What happened yesterday?" --timezone-offset 480
-```
+## Give a new Codex session the handoff
 
-Resume establishes a new baseline and discards paused activity. Re-enabling a disabled observer also begins at current state. Worker restart while still enabled recovers its persisted commit cursor. Edits made and reverted between polls can be missed. External terminal tests are not automatically verified: use the configured test command through CLI or the extension.
-
-Chat returns inspectable event IDs and exact recorded summaries, including labels for unverified claims. `--keyword-only` avoids model requests. Otherwise retrieval uses local Ollama with labelled fallback, and optional `qwen3:1.7b` selects sources; install it with `ollama pull qwen3:1.7b`. Calendar words use the supplied UTC offset in minutes. History pages expose `next_offset`; queries never send the whole archive to chat. The chat model unloads after each request, and model calls sharing one database are serialized.
-
-
-## First hands-on test
-
-Use the existing A.R.C. repository with a separate test database so the example error does not enter your real project memory. In a terminal at its root, run:
-
-```bash
-source .venv/bin/activate
-export ARC_DB="$PWD/.arc/first-test.sqlite3"
-arc init --test-command "$PWD/.venv/bin/python -m pytest -q"
-arc session start "First A.R.C. test"
-arc note --kind error "SQLite migration failed because a table was missing"
-arc capture
-arc test
-arc state
-arc session list
-```
-
-Copy the `id` from `arc session start`, then run `arc session show SESSION_ID`. The note, Git capture, and test event should have that same `session_id`. `arc test` should report `"passed": true`; it runs the configured test command against the current local Git state. End with `arc session end`. Events recorded after that have a null session ID. Sessions group evidence; they do not capture activity automatically.
-
-For semantic search, keep `OLLAMA_NO_CLOUD=1 ollama serve` running in another terminal, then run:
-
-```bash
-arc index
-arc search "Why did the database upgrade break?" --semantic-only
-```
-
-The search result should say `"mode": "semantic"` and include the recorded migration error with an `arc:event/<id>` reference. The user reported on 2026-10-09 that this semantic search still worked with networking off. Save the exact command and result during a repeat run for presentation evidence. The fresh Codex MCP trial also succeeded on 2026-10-09.
-
-## Connect to Codex
-
-The MCP server is scoped to one registered project. Set `ARC_DB` to the database you want Codex to read (`first-test.sqlite3` for the trial or `arc.sqlite3` for normal use), then run this **once** from the repository root to add it to your local Codex configuration:
+If you use the Codex CLI, add A.R.C.'s local stdio MCP server once from the A.R.C. repository root with the virtual environment active and `ARC_DB` set to the database you want to share:
 
 ```bash
 codex mcp add arc \
@@ -172,27 +151,27 @@ codex mcp add arc \
 codex mcp list
 ```
 
-If the terminal reports `codex: command not found`, use the bundled VS Code Codex binary and the real-database reconfiguration commands in [the project workflow](docs/PROJECT_WORKFLOW.md#make-codex-read-the-real-database). Changing `ARC_DB` in a terminal does not update an MCP entry that was already saved.
+Restart Codex and ask: **“Call `arc_get_project_handoff`. What is unfinished, what is currently verified, and which source events support that handoff?”** The server also exposes project state, search, task review, incidents, timeline, and individual event records. The saved MCP entry keeps the database path used when you added it; changing a shell's `ARC_DB` later does not change that entry. For another project, set `ARC_PROJECT` to that repository's absolute path and use the same registered database. If `codex` is not on your path, the [project workflow](docs/PROJECT_WORKFLOW.md#make-codex-read-the-real-database) gives the VS Code bundled-binary route. The Codex CLI is a separate install.
 
-Restart the Codex session, then ask: **“Call A.R.C.'s `arc_get_project_handoff` and tell me what is unfinished, what is currently verified, and which source events support the handoff.”** For a new error, ask it to call `arc_search_incidents`, then `arc_get_incident` for the relevant source-linked history. The server also offers `arc_list_incidents`, `arc_get_project_state`, `arc_search_memory`, `arc_get_recent_changes`, `arc_get_task_history`, `arc_get_task_review`, `arc_get_session_history`, `arc_get_event`, and `arc_create_checkpoint`. The last tool saves an unconfirmed candidate. Connecting the server makes returned project summaries available to the coding agent, so review what you record before enabling it.
+## Other features and useful commands
 
-The [official Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp) documents local stdio servers and `codex mcp add`. The server uses the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk). Ollama's [all-minilm model page](https://ollama.com/library/all-minilm) documents the model pull and local embedding endpoint; its [FAQ](https://github.com/ollama/ollama/blob/main/docs/faq.mdx) documents local-only mode.
+| Need | Command or view |
+|---|---|
+| Check the evidence-backed project state | `arc state` or dashboard **Overview** |
+| Find a note, decision, or error | `arc search "query"`; add `--kind error`, `--keyword-only`, `--semantic-only`, or `--hybrid` |
+| Browse older activity | `arc timeline --kind test`, `arc session list`, or dashboard **Timeline** |
+| Inspect an answer's citation | `arc event EVENT_ID` or an **Inspect** button in VS Code |
+| Save a handoff snapshot | `arc checkpoint`; it is an unconfirmed candidate that can become stale |
+| Check local model readiness | `arc ai-status` |
+| Use a different registered project | `arc --project /absolute/path/to/repository ...` |
 
-## Tests
+For the command reference and implementation details, see the [project workflow](docs/PROJECT_WORKFLOW.md) and [implementation notes](docs/IMPLEMENTATION.md). For recorded validation results and remaining release checks, see the [Phase 12 checklist](docs/PHASE_12_VALIDATION.md) and [test log](docs/TEST_RESULTS.md).
+
+## Run the tests
 
 ```bash
+source .venv/bin/activate
 python -m pytest -q
 ```
 
-The tests cover unverified claims, auditable task correction, current versus stale tests and confirmations, handoff selection, incident links and cause separation, checkpoint freshness, privacy filtering, session grouping and migration, semantic ranking, keyword fallback, local dashboard routes and controls, and real stdio MCP client/server calls. Live-model tests run when local Ollama and `all-minilm` are available; otherwise they skip. Run `python -m scripts.evaluate_retrieval` for the fixed seven-record semantic-versus-keyword comparison. The user-reported disconnected-network result still needs captured terminal output for the hackathon evidence package.
-
-For Phase 7's larger labelled incident check, run `python -m scripts.evaluate_incidents`. Its synthetic data stay in a temporary database. Read [the measured results and limits](docs/PHASE7_VALIDATION.md), use [the field-trial and recording runbook](docs/PHASE7_DEMO.md), and open [the local presentation deck](docs/PITCH_DECK.html) in a browser. These materials do not replace a recorded offline trial or an unfamiliar-user trial.
-
-The runbook includes `python -m scripts.verify_phase7_journey` to repeat the real database's dashboard, semantic search, and checkpoint read path. It checks loopback use but does not turn off the Mac's network connection.
-
-## Project roles and next gate
-
-The implementation developer owns Python, SQLite, local retrieval, CLI, MCP, and future interface work. The teammate owns the setup walkthrough, test evidence log, presentation, and video. The shared technical flow is **recorded event → SQLite `events` row → embedding indexed by event ID → search hit with source reference**. See [implementation notes](docs/IMPLEMENTATION.md) for the interfaces.
-
-Phase 6's dashboard implementation is ready for a manual browser trial. Its automated HTTP checks cover project selection data, handoff, source-linked records, pause, and project-scoped deletion. The remaining Phase 6 completion gate is an unfamiliar person opening the dashboard and finding an unfinished task without developer help. The saved MCP entry on this machine still points to the trial database; [the project workflow](docs/PROJECT_WORKFLOW.md#make-codex-read-the-real-database) gives the exact switch for normal use.
-
+The suite covers task verification, handoffs, incidents, local retrieval and fallbacks, dashboard routes, observer behavior, and MCP calls. Live-model tests use local Ollama when available and skip otherwise. Run `npm test` in `extension/` for its compile and integration checks.

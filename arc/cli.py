@@ -105,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_modes.add_argument("--keyword-only", action="store_true")
     search_modes.add_argument("--hybrid", action="store_true")
     commands.add_parser("state", help="show evidence-backed project state")
+    commands.add_parser("ai-status", help="check local Ollama models for search and chat")
     handoff = commands.add_parser("handoff", help="show a compact evidence-linked handoff")
     handoff.add_argument("--limit", type=int, default=6,
                          help="maximum selected evidence items, 1–12")
@@ -181,9 +182,6 @@ def main(argv: list[str] | None = None) -> int:
             from arc.observer import watch
             watch(service, project_path, interval=getattr(args, 'interval', 5))
             return 0
-            from arc.observer import watch
-            watch(service, project_path, interval=args.interval)
-            return 0
         elif args.command == 'timeline':
             result = service.store.timeline(service._project(project_path)['id'],
                 offset=max(0, args.offset), kind=args.kind, since=args.since, until=args.until,
@@ -254,6 +252,8 @@ def main(argv: list[str] | None = None) -> int:
                                            hybrid=args.hybrid)
         elif args.command == "state":
             result = service.project_state(project_path)
+        elif args.command == "ai-status":
+            result = service.local_ai_status()
         elif args.command == "handoff":
             result = service.project_handoff(project_path, args.limit)
         elif args.command == "event":

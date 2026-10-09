@@ -1,0 +1,30 @@
+{
+  "date_manila": "2026-10-10T01:34:51.871363+08:00",
+  "machine": "macOS-26.6.2-arm64-arm-64bit",
+  "project": "A.R.C",
+  "database": "arc.sqlite3",
+  "wifi_power": "Wi-Fi Power (en0): Off",
+  "external_tcp_connected": false,
+  "checks": {
+    "external_network_unreachable": true,
+    "semantic_search": {
+      "mode": "semantic",
+      "source_ref": "arc:event/8fbf5d9e14ac4ebba2c2163a97c685d1",
+      "expected_event_rank": 1,
+      "elapsed_ms": 143.1
+    },
+    "cited_local_chat": {
+      "mode": "local_model_selection",
+      "retrieval_mode": "semantic",
+      "citation_ids": [
+        "8fbf5d9e14ac4ebba2c2163a97c685d1"
+      ],
+      "elapsed_ms": 4842.0
+    },
+    "fresh_mcp_handoff_and_event": {
+      "source_ref": "arc:event/8fbf5d9e14ac4ebba2c2163a97c685d1",
+      "elapsed_ms": 1518.1
+    }
+  },
+  "status": "passed"
+}

@@ -98,6 +98,36 @@ def test_chat_citations_are_real_and_claims_remain_unverified(service, sample_re
     assert service.get_event(sample_repo, result['citations'][0]['id'])['id'] == event['id']
 
 
+def test_chat_requires_local_ollama(monkeypatch, service, sample_repo):
+    from urllib.error import URLError
+    from arc.memory import EmbeddingUnavailable
+    service.record_note(sample_repo, 'note', 'offline fact')
+    class Tags:
+        def __init__(self, payload=None, error=None):
+            self.payload = payload
+            self.error = error
+        def open(self, *_args, **_kwargs):
+            if self.error:
+                raise self.error
+            payload = self.payload
+            class Response:
+                def __enter__(self): return self
+                def __exit__(self, *_): pass
+                def read(self): return json.dumps(payload).encode()
+            return Response()
+    monkeypatch.setattr('arc.chat.build_opener', lambda *_: Tags(error=URLError('refused')))
+    with pytest.raises(EmbeddingUnavailable, match='requires Ollama'):
+        answer(service, sample_repo, 'Where did we leave off?')
+    monkeypatch.setattr('arc.chat.build_opener', lambda *_: Tags({'models': []}))
+    with pytest.raises(EmbeddingUnavailable, match='ollama pull qwen3'):
+        answer(service, sample_repo, 'Where did we leave off?')
+    monkeypatch.setattr('arc.chat.build_opener',
+                        lambda *_: Tags({'models': [{'name': 'qwen3:1.7b'}]}))
+    result = answer(service, sample_repo, 'Where did we leave off?')
+    assert result['citations'][0]['summary'] == 'offline fact'
+    assert result['notice']
+
+
 def test_model_cannot_introduce_unknown_citations(service, sample_repo):
     event = service.record_note(sample_repo, 'note', 'Started login work')
     class InvalidModel:

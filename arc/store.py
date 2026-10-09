@@ -323,7 +323,9 @@ class Store:
 
     def timeline(self, project_id: str, limit: int = 20, offset: int = 0,
                  kind: str | None = None, since: str | None = None,
-                 until: str | None = None, snapshot_rowid: int | None = None) -> dict:
+                 until: str | None = None, snapshot_rowid: int | None = None,
+                 task_id: str | None = None,
+                 kinds: tuple[str, ...] | None = None) -> dict:
         def utc(value):
             if not value:
                 return None
@@ -334,18 +336,57 @@ class Store:
         since, until = utc(since), utc(until)
         if since and until and since >= until:
             raise ValueError('Timeline start must precede its exclusive end')
+        if kind and kinds:
+            raise ValueError('Choose either one event kind or a set of kinds')
         limit, offset = min(max(limit, 1), 100), max(offset, 0)
         if snapshot_rowid is None:
             snapshot_rowid = self.connection.execute('SELECT COALESCE(MAX(rowid),0) FROM events WHERE project_id=?', (project_id,)).fetchone()[0]
         snapshot_rowid = max(0, snapshot_rowid)
-        clauses = 'project_id=? AND rowid<=? AND (? IS NULL OR kind=?) AND (? IS NULL OR created_at>=?) AND (? IS NULL OR created_at<?)'
-        args = (project_id, snapshot_rowid, kind, kind, since, since, until, until)
-        total = self.connection.execute('SELECT COUNT(*) FROM events WHERE ' + clauses, args).fetchone()[0]
-        rows = self.connection.execute('SELECT * FROM events WHERE ' + clauses +
+        clauses = ['project_id=?', 'rowid<=?']
+        args: list = [project_id, snapshot_rowid]
+        if kind:
+            clauses.append('kind=?')
+            args.append(kind)
+        if kinds is not None:
+            if not kinds:
+                raise ValueError('Event kinds must not be empty')
+            clauses.append('kind IN (' + ','.join('?' for _ in kinds) + ')')
+            args.extend(kinds)
+        if task_id:
+            clauses.append('task_id=?')
+            args.append(task_id)
+        if since:
+            clauses.append('created_at>=?')
+            args.append(since)
+        if until:
+            clauses.append('created_at<?')
+            args.append(until)
+        where = ' AND '.join(clauses)
+        total = self.connection.execute('SELECT COUNT(*) FROM events WHERE ' + where, args).fetchone()[0]
+        rows = self.connection.execute('SELECT * FROM events WHERE ' + where +
             ' ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?', (*args, limit, offset))
         events = [self._event(row) for row in rows]
         return {'events': events, 'total_events': total, 'snapshot_rowid': snapshot_rowid,
                 'next_offset': offset + len(events) if offset + len(events) < total else None}
+
+    def timeline_days(self, project_id: str, snapshot_rowid: int,
+                      offset_minutes: int = 0, since: str | None = None,
+                      until: str | None = None, kind: str | None = None,
+                      task_id: str | None = None, limit: int = 14) -> dict:
+        """Count active local calendar days without loading event text into a prompt."""
+        if not -840 <= offset_minutes <= 840:
+            raise ValueError('Timezone offset must be within 14 hours of UTC')
+        modifier = f'{offset_minutes:+d} minutes'
+        rows = self.connection.execute('''
+            SELECT date(created_at, ?) AS local_day, COUNT(*) AS event_count
+            FROM events WHERE project_id=? AND rowid<=?
+              AND (? IS NULL OR created_at>=?) AND (? IS NULL OR created_at<?)
+              AND (? IS NULL OR kind=?) AND (? IS NULL OR task_id=?)
+            GROUP BY local_day ORDER BY local_day DESC LIMIT ?''',
+            (modifier, project_id, snapshot_rowid, since, since, until, until,
+             kind, kind, task_id, task_id, limit + 1)).fetchall()
+        return {'days': [{'date': row['local_day'], 'event_count': row['event_count']}
+                         for row in rows[:limit]], 'truncated': len(rows) > limit}
 
     def get_event(self, event_id: str) -> dict | None:
         row = self.connection.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()

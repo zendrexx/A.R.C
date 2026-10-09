@@ -60,11 +60,11 @@ For a narrow baseline comparison, give a second participant or the same particip
 
 ## Offline capture and evidence log
 
-The user previously reported a successful disconnected-network `--semantic-only` search. To make that result repeatable, capture a new run with the exact command, `mode`, event reference, date/time, and visible network-off state. Do not disable the demo machine's networking during an active remote session; the person at the Mac should control that step. Use [TEST_RESULTS.md](TEST_RESULTS.md) for the result and filename. A.R.C. sends embedding requests only to local Ollama at `127.0.0.1`; `arc handoff` and checkpoint review do not require Ollama.
+A physical Wi-Fi-off CLI/chat/MCP trial passed on 2026-10-10 with the exact source reference and network state saved in the [Phase 12 report](phase12-offline-report.json). The on-camera segment still needs visible network-off state and the actual dashboard/checkpoint path. Do not disable the demo machine's networking during an active remote presentation; the person at the Mac should control that step. Use [TEST_RESULTS.md](TEST_RESULTS.md) for the recording filename. A.R.C. sends embedding requests only to local Ollama at `127.0.0.1`; `arc handoff` and checkpoint review do not require Ollama.
 
 ## Known demo limits
 
-- Manual `arc capture`, `arc test`, and `arc index` are still required. Automatic observation and indexing are future phases.
+- Manual `arc capture`, `arc test`, and `arc index` remain available. Opt-in observation and automatic indexing are implemented; their broader real-project validation is open.
 - Semantic hits and incident matches are candidates, not diagnoses. The Phase 7 labelled incident fixture found the intended record in 6/10 paraphrases and surfaced candidates for 4/15 unrelated or different-cause queries.
 - A passing configured test supports the current Git fingerprint; it does not prove every behavior works. Commits and edits can make prior evidence historical.
-- The offline chatbot, VS Code extension, and automated background watcher have not been implemented.
+- Cited local chat, the VS Code extension, and the observer are implemented. The extension's visual and full offline workflow checks remain open.

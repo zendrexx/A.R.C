@@ -1,21 +1,54 @@
-"""Local evidence answers; the model selects sources, never invents facts."""
+"""Grounded local answers from bounded, inspectable project evidence."""
 import json
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.error import URLError
 from urllib.request import ProxyHandler, Request, build_opener
 from arc.memory import EmbeddingUnavailable
 from arc.model_gate import model_slot
+from arc.store import SEARCH_STOPWORDS
+
+PAGE_SIZE = 12
+DATE_PATTERN = re.compile(r'\b\d{4}-\d{2}-\d{2}\b')
+RATIONALE_WORDS = re.compile(r'\bbecause\b|\breason\b|\brationale\b', re.I)
 
 
 class OllamaChat:
     model = 'qwen3:1.7b'
 
+    def installed(self) -> bool:
+        request = Request('http://127.0.0.1:11434/api/tags')
+        with build_opener(ProxyHandler({})).open(request, timeout=5) as response:
+            payload = json.load(response)
+        names = {m.get('name') or m.get('model') for m in payload.get('models', [])}
+        return self.model in names
+
+    def require(self) -> None:
+        try:
+            ready = self.installed()
+        except (URLError, TimeoutError, OSError) as error:
+            raise EmbeddingUnavailable(
+                f'Local chat requires Ollama. Start Ollama and retry, or ask with --keyword-only. {error}')
+        if not ready:
+            raise EmbeddingUnavailable(
+                f"Local chat requires 'ollama pull {self.model}', or ask with --keyword-only.")
+
+    def probe(self) -> dict:
+        try:
+            ready = self.installed()
+        except (URLError, TimeoutError, OSError) as error:
+            return {'status': 'unavailable', 'model': self.model,
+                    'reason': f'Start Ollama to use local chat. {error}'}
+        if ready:
+            return {'status': 'ready', 'model': self.model}
+        return {'status': 'unavailable', 'model': self.model,
+                'reason': f"Run 'ollama pull {self.model}' to enable local chat."}
+
     def select(self, question: str, events: list[dict]) -> list[str]:
         def clip(text, size):
             return text.encode('utf-8')[:size].decode('utf-8', 'ignore')
         selection = {'question': clip(question, 320), 'events': [
-            {k: (clip(e[k], 80) if k == 'summary' else e[k])
+            {k: (clip(e[k], 160) if k == 'summary' else e[k])
              for k in ('id', 'kind', 'summary', 'created_at')} for e in events[:12]]}
         content = json.dumps(selection, ensure_ascii=False)
         # Keep the model input below a conservative byte budget, including non-ASCII.
@@ -58,53 +91,290 @@ def calendar_bounds(question: str, offset_minutes: int = 0, now=None):
     return start.astimezone(timezone.utc).isoformat(), (start + timedelta(days=1)).astimezone(timezone.utc).isoformat()
 
 
-def answer(service, path, question: str, offset_minutes: int = 0, keyword_only=False,
-           offset: int = 0, chat=None, snapshot_rowid: int | None = None) -> dict:
+def _question_bounds(question: str, offset_minutes: int, now=None):
+    relative = calendar_bounds(question, offset_minutes, now)
+    if relative[0]:
+        word = re.search(r'\b(today|yesterday)\b', question, re.I)[1].lower()
+        local_day = datetime.fromisoformat(relative[0]).astimezone(
+            timezone(timedelta(minutes=offset_minutes))).date()
+        return *relative, f'{word.capitalize()} ({local_day.isoformat()})'
+    dates = DATE_PATTERN.findall(question)
+    if not dates:
+        return None, None, None
+    if len(dates) > 2:
+        raise ValueError('Ask for one date or a range of two dates')
+    try:
+        start_day = date.fromisoformat(dates[0])
+        end_day = date.fromisoformat(dates[-1])
+    except ValueError as error:
+        raise ValueError('Use valid dates in YYYY-MM-DD format') from error
+    if end_day < start_day:
+        raise ValueError('Date range end must not precede its start')
+    zone = timezone(timedelta(minutes=offset_minutes))
+    start = datetime.combine(start_day, datetime.min.time(), zone)
+    end = datetime.combine(end_day + timedelta(days=1), datetime.min.time(), zone)
+    label = start_day.isoformat() if start_day == end_day else f'{start_day.isoformat()} through {end_day.isoformat()}'
+    return start.astimezone(timezone.utc).isoformat(), end.astimezone(timezone.utc).isoformat(), label
+
+
+def _is_rationale(event: dict) -> bool:
+    return (event['kind'] == 'decision' or bool(event['details'].get('commit_message'))
+            or (event['kind'] == 'note' and bool(RATIONALE_WORDS.search(event['summary']))))
+
+
+def _subject_terms(question: str) -> set[str]:
+    generic = {'implement', 'implemented', 'feature', 'choose', 'chose', 'use', 'used',
+               'project', 'code', 'decision', 'decide', 'did', 'reason'}
+    return {term.casefold() for term in re.findall(r'\w+', question)
+            if term.casefold() not in SEARCH_STOPWORDS | generic and len(term) > 2}
+
+
+def _task_for_question(tasks: list[dict], question: str) -> dict | None:
+    folded = question.casefold()
+    by_id = [task for task in tasks if task['id'].casefold() in folded]
+    if by_id:
+        return by_id[0]
+    by_title = [task for task in tasks if len(task['title']) >= 4
+                and task['title'].casefold() in folded]
+    return max(by_title, key=lambda task: len(task['title'])) if by_title else None
+
+
+def _label(event: dict, current_fingerprint: str) -> str:
+    kind = event['kind']
+    if kind == 'claim':
+        return 'Unverified claim'
+    if kind == 'resolution':
+        return 'Reported resolution; fix not independently verified'
+    if kind == 'test':
+        if not event['details'].get('passed'):
+            return 'Failed configured test'
+        if event['fingerprint'] == current_fingerprint:
+            return 'Passing configured test at current Git state'
+        return 'Historical passing test; current Git state differs'
+    if kind == 'git':
+        return 'Observed Git paths; correctness not established'
+    if kind == 'attempt':
+        return 'Recorded attempt; outcome needs review'
+    if kind == 'decision':
+        return 'Recorded decision'
+    if kind == 'confirmation':
+        return ('Current explicit confirmation' if event['fingerprint'] == current_fingerprint
+                else 'Historical confirmation; current Git state differs')
+    return kind.replace('_', ' ')
+
+
+def _local_stamp(value: str, offset_minutes: int) -> str:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    local = parsed.astimezone(timezone(timedelta(minutes=offset_minutes)))
+    return local.strftime('%Y-%m-%d %H:%M %z')
+
+
+def _line(event: dict, fingerprint: str, offset_minutes: int) -> str:
+    return (f"[{event['source_ref']}] {_local_stamp(event['created_at'], offset_minutes)} · "
+            f"{_label(event, fingerprint)}: {event['summary']}")
+
+
+def _unique(events: list[dict], limit: int = PAGE_SIZE) -> list[dict]:
+    seen = set()
+    result = []
+    for event in events:
+        if event['id'] not in seen:
+            result.append(event)
+            seen.add(event['id'])
+        if len(result) >= limit:
+            break
+    return result
+
+
+def answer(service, path, question: str, offset_minutes: int | None = None,
+           keyword_only=False, offset: int = 0, chat=None,
+           snapshot_rowid: int | None = None, now=None) -> dict:
     if not question.strip() or len(question) > 2000:
         raise ValueError('Ask a nonempty question of at most 2000 characters')
+    if offset < 0 or snapshot_rowid is not None and snapshot_rowid < 0:
+        raise ValueError('History offset and snapshot must be nonnegative')
+    if offset_minutes is None:
+        offset_minutes = int((datetime.now().astimezone().utcoffset() or
+                              timedelta()).total_seconds() // 60)
+    if not -840 <= offset_minutes <= 840:
+        raise ValueError('Timezone offset must be within 14 hours of UTC')
     project = service._project(path)
-    since, until = calendar_bounds(question, offset_minutes)
+    if not keyword_only and chat is None:
+        chat = OllamaChat()
+        chat.require()
+    since, until, period = _question_bounds(question, offset_minutes, now)
     rationale = bool(re.search(r'\bwhy\b', question, re.I))
-    fix_question = bool(re.search(r'errors?.*fix|fix.*errors?', question, re.I))
-    broad = bool(since or fix_question or re.search(r'timeline|leave off|what happened|summarize|summary|what changed', question, re.I))
-    if broad:
-        page = service.store.timeline(project['id'], 12, max(0, offset), since=since, until=until,
-                                      snapshot_rowid=snapshot_rowid)
-        snapshot_rowid = page['snapshot_rowid']
-        events = page['events']
-        next_offset = page['next_offset']
-        retrieval = 'timeline'
-    else:
-        found = service.search_memory(path, question, 12, keyword_only=keyword_only)
-        events = [service.get_event(path, hit['event_id']) for hit in found['hits']]
-        next_offset = None
-        retrieval = found['mode']
-    if rationale:
-        events = [e for e in events if e['kind'] == 'decision' or e['details'].get('commit_message')
-                  or (e['kind'] in {'note', 'error', 'attempt'} and re.search(r'\bbecause\b|\breason\b|\brationale\b', e['summary'], re.I))]
+    fix_question = (bool(re.search(r'\b(error|errors|bug|bugs|failure|failures|issue|issues)\b', question, re.I))
+                    and bool(re.search(r'\b(fix|fixed|resolve|resolved|resolution|repair|repaired)\b', question, re.I)))
+    error_question = bool(re.search(r'\b(errors?|failures?|bugs?)\b', question, re.I))
+    tasks = service.store.tasks(project['id'])
+    task = _task_for_question(tasks, question) if not rationale else None
+    handoff = bool(re.search(r'leave off|unfinished|what(?:\s+should\s+we)?\s+do next|next task', question, re.I))
+    broad = bool(re.search(r'timeline|what happened|summari[sz]e|summary|what changed', question, re.I))
     mode = 'evidence'
     notice = None
-    if events and not keyword_only:
+    page = None
+    groups = []
+    review = None
+    overview = None
+    day_counts = None
+    use_model = False
+    if fix_question:
+        page = service.store.timeline(project['id'], 4, offset, kind='resolution',
+                                      since=since, until=until,
+                                      snapshot_rowid=snapshot_rowid)
+        if page['total_events']:
+            events = []
+            for resolution in page['events']:
+                incident_id = resolution['details'].get('incident_id')
+                if not incident_id:
+                    events.append(resolution)
+                    continue
+                history = service.incident_history(path, incident_id)
+                error = service.get_event(path, history['error']['event_id'])
+                tests = [service.get_event(path, item['event_id'])
+                         for item in history['linked_tests']]
+                groups.append({'error': error, 'resolution': resolution, 'tests': tests})
+                events.extend([error, resolution, *tests])
+            events = _unique(events, 16)
+        else:
+            # Show the recorded errors, but do not infer that any was fixed.
+            page = service.store.timeline(project['id'], PAGE_SIZE, offset, kind='error',
+                                          since=since, until=until,
+                                          snapshot_rowid=snapshot_rowid)
+            events = page['events']
+            notice = 'No reported resolution was recorded for this period.'
+        retrieval = 'linked_incidents'
+    elif rationale and (since or until):
+        page = service.store.timeline(project['id'], PAGE_SIZE, offset,
+                                      kinds=('decision', 'note', 'observer_commit'),
+                                      since=since, until=until,
+                                      snapshot_rowid=snapshot_rowid)
+        events = [event for event in page['events'] if _is_rationale(event)]
+        retrieval = 'dated_rationale'
+        use_model = True
+    elif rationale:
+        found = service.search_memory(path, question, 20, keyword_only=keyword_only)
+        terms = _subject_terms(question)
+        events = []
+        for hit in found['hits']:
+            event = service.get_event(path, hit['event_id'])
+            overlap = any(term in event['summary'].casefold() for term in terms)
+            if (_is_rationale(event) and
+                    (overlap or found['mode'] == 'semantic' and hit['score'] >= 0.35
+                     or not terms and hit['score'] >= 0.25)):
+                events.append(event)
+        events = _unique(events)
+        retrieval = found['mode']
+        notice = found.get('notice') or found.get('reason')
+        use_model = True
+    elif task:
+        review = service.task_review(path, task['id'])
+        page = service.store.timeline(project['id'], PAGE_SIZE, offset,
+                                      task_id=task['id'], since=since, until=until,
+                                      snapshot_rowid=snapshot_rowid)
+        events = page['events']
+        retrieval = 'task_history'
+    elif handoff:
+        overview = service.project_handoff(path)
+        selected = [service.get_event(path, item['id'])
+                    for item in overview['key_evidence']]
+        recent = service.store.timeline(project['id'], 2)['events']
+        events = _unique([*selected, *recent])
+        retrieval = 'handoff'
+        use_model = True
+    elif since or until or broad or error_question:
+        page = service.store.timeline(project['id'], PAGE_SIZE, offset,
+                                      kind='error' if error_question else None,
+                                      since=since, until=until,
+                                      snapshot_rowid=snapshot_rowid)
+        events = page['events']
+        retrieval = 'timeline'
+        day_counts = service.store.timeline_days(project['id'], page['snapshot_rowid'],
+            offset_minutes, since, until, 'error' if error_question else None)
+    else:
+        found = service.search_memory(path, question, PAGE_SIZE, keyword_only=keyword_only)
+        events = [service.get_event(path, hit['event_id']) for hit in found['hits']]
+        retrieval = found['mode']
+        notice = found.get('notice') or found.get('reason')
+        use_model = True
+    if events and use_model and not keyword_only:
         try:
             with model_slot(service.store):
-                ids = (chat or OllamaChat()).select(question, events)
+                ids = chat.select(question, events)
             events = [e for e in events if e['id'] in ids]
             mode = 'local_model_selection'
         except (EmbeddingUnavailable, URLError, TimeoutError, OSError, ValueError, KeyError, TypeError) as error:
-            notice = f'Local chat unavailable or invalid source selection; showing recorded evidence. {error}'
+            notice = f'Local source selection unavailable; showing recorded evidence. {error}'
+    next_offset = page['next_offset'] if page else None
+    if page:
+        snapshot_rowid = page['snapshot_rowid']
+    fingerprint = service.project_state(path)['git']['fingerprint']
+    lines = []
     if not events:
-        text = 'No recorded rationale supports this answer.' if rationale else 'No matching recorded evidence supports this answer.'
+        if rationale:
+            text = 'No recorded rationale supports this answer.'
+        elif fix_question:
+            text = 'No reported resolution or recorded error supports this answer.'
+        elif period:
+            text = f'No recorded activity for {period}.'
+        else:
+            text = 'No matching recorded evidence supports this answer.'
     else:
-        lines = ['Recorded evidence (claims remain unverified; test results apply only to their recorded snapshot):']
         if fix_question:
-            lines.append('These records alone do not verify which error a change fixed. Review the associated checks and snapshots.')
-        for e in reversed(events):
-            label = 'Unverified claim' if e['kind'] == 'claim' else e['kind']
-            lines.append(f"[{e['id']}] {e['created_at']} · {label}: {e['summary']}")
+            lines.append('Reported error resolutions; a report and linked test do not prove the error is fixed.')
+            if groups:
+                for group in groups:
+                    lines.append(_line(group['error'], fingerprint, offset_minutes))
+                    lines.append(_line(group['resolution'], fingerprint, offset_minutes))
+                    if group['tests']:
+                        lines.extend(_line(test, fingerprint, offset_minutes)
+                                     for test in group['tests'])
+                    else:
+                        lines.append('No configured test is linked to this reported resolution.')
+            else:
+                lines.append('No incident links are available for these records.')
+                lines.extend(_line(event, fingerprint, offset_minutes) for event in events)
+        else:
+            if overview:
+                suggested = overview['suggested_next_task']
+                if suggested:
+                    lines.append(f"Suggested next task: {suggested['title']} ({suggested['id']}); "
+                                 f"current state: {suggested['state']}. {suggested['next_step']}.")
+                else:
+                    lines.append('No unfinished task is recorded.')
+            if review:
+                state = review['current_state']
+                lines.append(f"Task {state['title']} ({state['id']}) currently has evidence state "
+                             f"{state['state']}.")
+                if review['missing']:
+                    lines.append('Still needed: ' + '; '.join(review['missing']))
+            if page and retrieval == 'timeline':
+                label = period or ('Recorded errors' if error_question else 'Project timeline')
+                lines.append(f'{label}: {page["total_events"]} recorded event(s); '
+                             f'showing {len(events)} on this page in chronological order.')
+                if day_counts and day_counts['days']:
+                    buckets = ', '.join(f"{day['date']}: {day['event_count']}"
+                                        for day in day_counts['days'])
+                    lines.append(f'Activity by local day (latest 14): {buckets}' +
+                                 ('; older days available in history.'
+                                  if day_counts['truncated'] else '.'))
+            elif page and retrieval == 'task_history':
+                lines.append(f'{page["total_events"]} linked event(s); showing {len(events)} on this page.')
+            elif rationale:
+                lines.append('Recorded rationale from explicit decisions, notes, or commit messages:')
+            else:
+                lines.append('Recorded project evidence:')
+            ordered = list(reversed(events)) if page else events
+            lines.extend(_line(event, fingerprint, offset_minutes) for event in ordered)
         text = '\n'.join(lines)
     if next_offset is not None:
-        text += '\nMore history is available; continue with the returned next_offset.'
+        text += '\nMore history is available; continue with next_offset and snapshot_rowid.'
     return {'answer': text, 'mode': mode, 'retrieval_mode': retrieval,
             'citations': [{k: e[k] for k in ('id', 'source_ref', 'created_at', 'summary')} for e in events],
             'next_offset': next_offset, 'snapshot_rowid': snapshot_rowid,
-            'since': since, 'until': until, 'notice': notice}
+            'since': since, 'until': until, 'notice': notice,
+            'total_events': page['total_events'] if page else None,
+            'period': period, 'day_counts': day_counts}
