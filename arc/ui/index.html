@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="arc-token" content="__ARC_REQUEST_TOKEN__">
+  <title>A.R.C. · Project memory</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="brand"><span class="brand-mark">A</span><div><strong>A.R.C.</strong><small>AGENT RECALL &amp; CONTINUITY</small></div></div>
+      <div class="sidebar-label">WORKSPACE</div>
+      <nav id="navigation" class="nav-list" aria-label="Sections">
+        <button type="button" data-pane="overview" class="nav-item active">Overview</button>
+        <button type="button" data-pane="memory" class="nav-item">Memory search</button>
+        <button type="button" data-pane="tasks" class="nav-item">Tasks &amp; evidence</button>
+        <button type="button" data-pane="timeline" class="nav-item">Timeline</button>
+        <button type="button" data-pane="checkpoints" class="nav-item">Checkpoints</button>
+        <button type="button" data-pane="incidents" class="nav-item">Incidents</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <button type="button" data-pane="settings" class="nav-item">Settings &amp; privacy</button>
+        <div class="privacy-note"><span class="live-dot"></span> Local project memory<br><small>Cloud AI and background tracking are not used.</small></div>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div class="project-picker">
+          <label for="project-select">PROJECT</label>
+          <select id="project-select" aria-label="Selected project"></select>
+          <button id="add-project-toggle" type="button" class="icon-button" title="Register a project" aria-label="Register a project">+</button>
+        </div>
+        <div id="recording-badge" class="status-pill">Loading</div>
+      </header>
+
+      <main id="main-content">
+        <section id="register-panel" class="register-panel" hidden>
+          <div class="section-eyebrow">START HERE</div>
+          <h1>Add a local project</h1>
+          <p>Choose a Git repository already on this computer. A.R.C. records only what you explicitly submit today.</p>
+          <form id="register-form" class="stacked-form">
+            <label for="project-path">Project folder</label>
+            <input id="project-path" type="text" required placeholder="/Users/you/Projects/my-app" autocomplete="off">
+            <label for="test-command">Configured test command <span class="muted">(optional)</span></label>
+            <input id="test-command" type="text" placeholder="/absolute/path/to/python -m pytest -q" autocomplete="off">
+            <button type="submit" class="primary-button">Register project</button>
+          </form>
+        </section>
+
+        <div id="project-content" hidden>
+          <div class="page-heading"><div><div class="section-eyebrow">PROJECT MEMORY</div><h1 id="page-title">Overview</h1><p id="page-subtitle">Evidence you can inspect. Progress you can trust.</p></div><button id="refresh-button" type="button" class="secondary-button">Refresh</button></div>
+
+          <section id="pane-overview" class="pane">
+            <div id="metric-grid" class="metric-grid"></div>
+            <div class="two-column">
+              <section class="card feature-card"><div class="card-heading"><h2>Where to continue</h2><span class="eyebrow-chip">HANDOFF</span></div><div id="next-task"></div></section>
+              <section class="card"><div class="card-heading"><h2>Current evidence</h2><span class="eyebrow-chip">GIT STATE</span></div><div id="git-status"></div></section>
+            </div>
+            <section class="card"><div class="card-heading"><h2>Selected context</h2><span class="eyebrow-chip">SOURCE LINKED</span></div><div id="handoff-evidence" class="record-list"></div></section>
+          </section>
+
+          <section id="pane-memory" class="pane" hidden>
+            <section class="card"><div class="card-heading"><h2>Search recorded memory</h2><span class="eyebrow-chip">LOCAL RETRIEVAL</span></div><form id="search-form" class="search-row"><label class="sr-only" for="search-query">Search query</label><input id="search-query" type="search" required placeholder="Why did the database upgrade fail?"><label class="sr-only" for="search-mode">Search mode</label><select id="search-mode"><option value="semantic">Semantic</option><option value="hybrid">Hybrid</option><option value="keyword">Keyword</option></select><button type="submit" class="primary-button">Search</button></form><p class="helper">New notes become semantically searchable after indexing. Search results are evidence references, not conclusions.</p></section>
+            <div id="search-summary" class="result-summary"></div><div id="search-results" class="record-list"></div>
+          </section>
+
+          <section id="pane-tasks" class="pane" hidden>
+            <section class="card"><div class="card-heading"><h2>Task verification</h2><span class="eyebrow-chip">CURRENT GIT STATE</span></div><p class="helper">A claim does not count as a passing test. Open a task to see what evidence is current and what is missing.</p><form id="task-add-form" class="search-row"><label class="sr-only" for="new-task-title">New task title</label><input id="new-task-title" required placeholder="Add a task to track"><button type="submit" class="secondary-button">Add task</button></form></section>
+            <div class="two-column task-layout"><section class="card"><h2>Recorded tasks</h2><div id="task-list" class="record-list"></div></section><section class="card"><h2>Evidence review</h2><div id="task-detail" class="record-list muted">Select a task to inspect its evidence.</div></section></div>
+          </section>
+
+          <section id="pane-timeline" class="pane" hidden>
+            <section class="card"><div class="card-heading"><h2>Development timeline</h2><span class="eyebrow-chip">UTC STORED · LOCAL DISPLAY</span></div><div class="filter-row"><label for="timeline-kind">Event type</label><select id="timeline-kind"><option value="">All events</option><option value="git">Git observations</option><option value="test">Tests</option><option value="decision">Decisions</option><option value="error">Errors</option><option value="attempt">Attempts</option><option value="resolution">Resolutions</option><option value="confirmation">Confirmations</option></select></div><div id="timeline-list" class="record-list"></div><button id="timeline-more" type="button" class="secondary-button" hidden>Load more</button></section>
+          </section>
+
+          <section id="pane-checkpoints" class="pane" hidden>
+            <section class="card"><div class="card-heading"><h2>Continuity checkpoints</h2><button id="checkpoint-create" type="button" class="secondary-button">Save candidate checkpoint</button></div><p class="helper">Checkpoints are unconfirmed candidates. A changed Git fingerprint makes an earlier snapshot stale.</p><div id="checkpoint-list" class="record-list"></div></section>
+          </section>
+
+          <section id="pane-incidents" class="pane" hidden>
+            <section class="card"><div class="card-heading"><h2>Past debugging experience</h2><span class="eyebrow-chip">CANDIDATES ONLY</span></div><form id="incident-search-form" class="search-row"><label class="sr-only" for="incident-query">Error to search</label><input id="incident-query" required placeholder="Describe the new error"><label class="sr-only" for="incident-cause">Known cause</label><input id="incident-cause" placeholder="Cause, if known"><button type="submit" class="primary-button">Find related</button></form><p class="helper">Different recorded causes stay separate. A similar message does not prove the same fix applies.</p><div id="incident-search-results" class="record-list"></div></section>
+            <section class="card"><div class="card-heading"><h2>Recorded incidents</h2><span class="eyebrow-chip">HISTORY</span></div><div id="incident-list" class="record-list"></div></section>
+          </section>
+
+          <section id="pane-settings" class="pane" hidden>
+            <div class="two-column">
+              <section class="card"><div class="card-heading"><h2>Local AI</h2><span class="eyebrow-chip">OLLAMA</span></div><p class="helper">Checks the configured embedding model on this computer. No project record is sent to a cloud service.</p><div id="ai-status" class="muted">Not checked yet.</div><div class="button-row"><button id="ai-check" type="button" class="secondary-button">Check local model</button><button id="index-button" type="button" class="secondary-button">Index pending events</button></div></section>
+              <section class="card"><div class="card-heading"><h2>Recording control</h2><span class="eyebrow-chip">PROJECT SCOPED</span></div><p class="helper">Pausing blocks new manually recorded evidence for this project. Existing records remain readable. Automatic watching is a future phase.</p><div id="pause-description"></div><button id="pause-button" type="button" class="secondary-button">Pause recording</button></section>
+            </div>
+            <section class="card danger-card"><div class="card-heading"><h2>Delete project memory</h2><span class="eyebrow-chip danger-chip">PERMANENT</span></div><p>Remove this project's A.R.C. events, vectors, tasks, incidents, sessions, and checkpoints. Source code and the project registration stay on disk.</p><button id="delete-button" type="button" class="danger-button">Delete recorded memory…</button></section>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="detail-dialog"><div class="dialog-header"><h2 id="dialog-title">Evidence</h2><button id="dialog-close" type="button" class="icon-button" aria-label="Close details">×</button></div><pre id="dialog-content"></pre></dialog>
+</body>
+</html>

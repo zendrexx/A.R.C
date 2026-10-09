@@ -108,6 +108,19 @@ def build_parser() -> argparse.ArgumentParser:
                          help="maximum selected evidence items, 1–12")
     commands.add_parser("event", help="inspect one evidence record").add_argument("event_id")
     commands.add_parser("checkpoint", help="store an unconfirmed handoff checkpoint")
+    watch = commands.add_parser(
+        "watch", help="observe file and Git activity for this project (foreground)")
+    watch.add_argument("--interval", type=float, default=None,
+                       help="seconds between file scans (default: 1.5)")
+    observe = commands.add_parser("observe", help="control automatic project observation")
+    observe_commands = observe.add_subparsers(dest="observe_command", required=True)
+    observe_commands.add_parser("status", help="show observation and worker state")
+    observe_commands.add_parser("pause", help="pause all new recording for this project")
+    observe_commands.add_parser("resume", help="resume recording with a fresh baseline")
+    observe_commands.add_parser("stop", help="disable automatic observation")
+    dashboard = commands.add_parser("dashboard", help="open the local project dashboard")
+    dashboard.add_argument("--port", type=int, default=8765)
+    dashboard.add_argument("--no-browser", action="store_true")
     commands.add_parser("serve", help="run the local stdio MCP server")
     return parser
 
@@ -122,6 +135,14 @@ def main(argv: list[str] | None = None) -> int:
         from arc.mcp_server import mcp
         mcp.run()
         return 0
+    if args.command == "dashboard":
+        from arc.dashboard import run_dashboard
+        try:
+            run_dashboard(db_path, args.port, not args.no_browser, project_path)
+            return 0
+        except OSError as error:
+            print(f"A.R.C.: Dashboard could not start: {error}", file=sys.stderr)
+            return 2
 
     service = ArcService(db_path)
     try:
@@ -193,6 +214,21 @@ def main(argv: list[str] | None = None) -> int:
             result = service.project_handoff(project_path, args.limit)
         elif args.command == "event":
             result = service.get_event(project_path, args.event_id)
+        elif args.command == "watch":
+            started = service.start_observation(project_path)
+            from arc.observe import POLL_SECONDS, run_worker
+            run_worker(service.store, started["project"],
+                       poll_seconds=args.interval or POLL_SECONDS)
+            result = service.observation_status(project_path)
+        elif args.command == "observe":
+            if args.observe_command == "status":
+                result = service.observation_status(project_path)
+            elif args.observe_command == "pause":
+                result = service.set_recording_paused(project_path, True)
+            elif args.observe_command == "resume":
+                result = service.set_recording_paused(project_path, False)
+            else:
+                result = service.stop_observation(project_path)
         else:
             result = service.create_checkpoint(project_path)
         print(json.dumps(result, indent=2, ensure_ascii=False))

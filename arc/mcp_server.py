@@ -148,6 +148,16 @@ def arc_search_incidents(query: str, cause: str | None = None,
         service.close()
 
 
+@mcp.tool(annotations=READ_ONLY)
+def arc_get_observation_status() -> dict:
+    """Get automatic observation state, worker heartbeat, and the Git commit cursor."""
+    service, project = _service()
+    try:
+        return service.observation_status(project)
+    finally:
+        service.close()
+
+
 @mcp.tool(annotations=LOCAL_WRITE)
 def arc_create_checkpoint() -> dict:
     """Save an unconfirmed candidate handoff from current recorded evidence."""

@@ -883,7 +883,7 @@ Separate claimed progress from evidence-backed progress.
 
 ### Completion Gate
 
-When an agent claims a feature is complete but no test evidence exists, A.R.C. does not incorrectly mark it verified. **Passed in service and MCP tests.** The CLI correction/review journey also passed in a temporary real Git repository on 2026-10-09. The Phase 3 CLI/MCP gate is complete; a graphical verification view remains a Phase 6 interface task.
+When an agent claims a feature is complete but no test evidence exists, A.R.C. does not incorrectly mark it verified. **Passed in service and MCP tests.** The CLI correction/review journey also passed in a temporary real Git repository on 2026-10-09. The Phase 3 CLI/MCP gate is complete; the Phase 6 dashboard now shows the same evidence review in a graphical view.
 
 ---
 
@@ -962,14 +962,14 @@ Make the product useful and easy to understand.
 
 ### Tasks
 
-- [ ] Build the main dashboard.
-- [ ] Add a memory search view. CLI and MCP search already work.
-- [ ] Add task and verification views. CLI and MCP state already expose this data.
-- [ ] Add a project timeline. `arc state` currently lists only recent events in JSON.
-- [ ] Add checkpoint review. The CLI can save candidate checkpoints and report staleness.
+- [x] Build the main local browser dashboard. It uses Python's loopback HTTP server and bundled HTML/CSS/JavaScript, with no extra runtime package or background service.
+- [x] Add a memory search view. Results show retrieval mode, source references, and indexing counts.
+- [x] Add task and verification views. A task review displays current evidence, missing checks, and an explicit confirmation action only after current tests pass.
+- [x] Add a paginated, filterable project timeline with local-time display and event details.
+- [x] Add checkpoint review with candidate and stale labels.
 - [ ] Connect a second coding agent if the primary integration is stable.
-- [ ] Display local AI and connection status.
-- [ ] Add pause and deletion controls.
+- [x] Display on-demand local Ollama embedding status and pending-index counts.
+- [x] Add project-scoped recording pause and confirmed memory deletion controls.
 
 ### Deliverables
 
@@ -983,6 +983,8 @@ Make the product useful and easy to understand.
 
 An unfamiliar test user can select a project, understand its progress, and retrieve an unfinished task without developer assistance.
 
+**Implementation status (2026-10-09):** The installed `arc dashboard` command serves the Phase 6 interface on `127.0.0.1`; two automated HTTP tests cover project views, evidence, authorization, pause, and scoped deletion. The unfamiliar-user completion gate is still open. The optional second coding agent remains deferred because one developer owns implementation and the teammate handles documentation and video. Automatic file watching, automatic indexing, chat, and the VS Code extension remain in later phases.
+
 ---
 
 ## Phase 7 — Validation and Hackathon Preparation
@@ -995,14 +997,14 @@ Prove the application is useful, reliable, and genuinely local.
 
 ### Tasks
 
-- [ ] Test with real recorded project activity beyond the small CLI smoke test.
+- [x] Test with real recorded project activity beyond the small CLI smoke test. The actual A.R.C. repository now has Phase 6–7 task `7c7e92f66806`, a linked decision/Git observation/passing test, indexed memory, and a real semantic query that returned its decision first. Broader unfamiliar-user use remains open.
 - [x] Test semantic retrieval with networking disconnected. User-reported pass on 2026-10-09; a repeatable evidence capture remains open.
 - [x] Test a new Codex-session handoff for a real recorded task, passing test, and relevant context. Broader unfamiliar-user trials remain open.
 - [x] Test an unsupported completion claim in an automated service test. Broader adversarial testing remains open.
-- [ ] Measure retrieval accuracy and false matches on a labelled set.
-- [ ] Compare handoff quality against a README or Git-only baseline.
-- [ ] Record a backup demonstration.
-- [ ] Prepare the presentation. Architecture, setup, and limitations are documented in `docs/IMPLEMENTATION.md` and `README.md`.
+- [x] Measure retrieval accuracy and false candidates on a labelled synthetic set. Phase 7 run: intended incident found in 6/10 paraphrases; candidates returned for 4/15 unrelated or different-cause queries. Broader real-incident calibration remains open.
+- [x] Compare the real handoff with README and Git on the same five questions. `docs/HANDOFF_COMPARISON.md` records four source-linked continuity answers from A.R.C. and Git's unique code-diff strength. This is a one-project source-coverage comparison; a timed unfamiliar-user trial remains open before claiming a speed or usability improvement.
+- [x] Record a backup demonstration. A 62-second silent screen recording of the live local dashboard is saved as `$HOME/Desktop/ARC-backup-demo.mov`; sampled video frames show Overview, Tasks & evidence, decision Timeline, semantic Memory search, and Checkpoints. This does not show a disconnected network or MCP.
+- [x] Prepare the presentation. An offline six-slide deck and timed live-demo runbook are in `docs/PITCH_DECK.html` and `docs/PHASE7_DEMO.md`; rehearsal and recorded video remain open.
 
 ### Deliverables
 
@@ -1017,11 +1019,13 @@ Prove the application is useful, reliable, and genuinely local.
 
 The main user journey succeeds repeatedly on the demo machine with no cloud dependency for memory retrieval and checkpoint inspection.
 
+**Current Phase 7 status (2026-10-09):** Labelled local-model retrieval and false-candidate results, a real A.R.C. task with linked Git/test/decision evidence, a source-coverage baseline, a six-slide deck, a timed demo runbook, and an inspected dashboard backup video are available. `scripts/verify_phase7_journey.py` passed twice on the real database over loopback, including semantic retrieval and checkpoint inspection. The live unfamiliar-user comparison and a documented physically disconnected-network run remain open; this gate is not yet closed.
+
 ---
 
 ## Future expansion after Phase 7
 
-Phases 0–7 remain the current MVP roadmap. The following phases are **future work, not implemented**. They are ordered so automatic, trustworthy evidence exists before the chatbot and extension present it. The original estimates assumed parallel coding and must be re-estimated for one implementation developer after the MVP gates and measurement on the Mac M1 with 8GB unified memory.
+Phases 0–7 remain the current MVP roadmap. The following phases are ordered so automatic, trustworthy evidence exists before the chatbot and extension present it. **Phase 8 is now implemented** (see its status note); Phases 9–12 remain future work. The original estimates assumed parallel coding and must be re-estimated for one implementation developer after the MVP gates and measurement on the Mac M1 with 8GB unified memory.
 
 | Order | Future phase | Original estimate | Dependency | User-visible milestone |
 |---|---|---:|---|---|
@@ -1038,9 +1042,11 @@ Phases 0–7 remain the current MVP roadmap. The following phases are **future w
 - Give every automatic event a UTC timestamp, project ID, source type, stable deduplication key, optional session ID, Git fingerprint or commit when available, and resolvable evidence reference. Tag inferred summaries as interpretations, not observations.
 - The implementation developer owns indexing, retrieval, answer grounding, model evaluation, collection, storage migration, controls, extension, and MCP compatibility. Keep contract and schema changes small, migrated, and tested. The documentation/video lead records actual setup, validation, and demo results.
 
-## Phase 8 — Automatic Project Observation (Future)
+## Phase 8 — Automatic Project Observation
 
 **Target: 2–3 working days after Phase 7**
+
+**Implementation status (2026-10-09):** Implemented in `arc/observe.py` with the service operations `observe.start/stop/status` and `privacy.pause/resume`, the CLI commands `arc watch` and `arc observe status|pause|resume|stop`, and the read-only MCP tool `arc_get_observation_status`. The worker polls `git ls-files` and `lstat` signatures, settles save bursts, deduplicates by content hash through `events.dedup_key`, skips generated directories and the sensitive-path list before hashing, and stores paths plus a content hash — never file contents. A persisted `observation_state` commit cursor recovers commits made while no worker ran; a non-fast-forward HEAD move is recorded as a labelled observation instead of fake commits. Pause suspends collection and resume (or any start) establishes a fresh baseline so deliberately unrecorded activity is not imported. Each run writes start/stop marker events and an "Automatic observation" session row. Observation events carry `source='watcher'` and can never confirm a task. Remaining: the VS Code extension supervising the same worker (Phase 11) and multi-day field validation.
 
 ### Objective
 
@@ -1156,7 +1162,7 @@ The team has one implementation developer and one documentation/video lead. See 
 
 ## Implementation developer
 
-Own the application end to end: local embeddings and retrieval, Git/test evidence, SQLite and migrations, task verification, CLI, MCP, and future interface work. The Phase 3 correction/review, Phase 4 handoff, and controlled Phase 5 incident gates passed. Phase 6 product interface work is next; broader retrieval calibration remains a Phase 7 validation task. Run technical tests and provide the exact observed results to the documentation/video lead. Preserve source IDs and the distinction between claims and verified evidence.
+Own the application end to end: local embeddings and retrieval, Git/test evidence, SQLite and migrations, task verification, CLI, MCP, and the product interface. The Phase 3 correction/review, Phase 4 handoff, and controlled Phase 5 incident gates passed. The Phase 6 dashboard is implemented; its unfamiliar-user gate and broader Phase 7 retrieval calibration remain. Run technical tests and provide the exact observed results to the documentation/video lead. Preserve source IDs and the distinction between claims and verified evidence.
 
 ## Documentation and video lead
 

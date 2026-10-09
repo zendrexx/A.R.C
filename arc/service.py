@@ -1,13 +1,14 @@
 """Evidence rules and the stable service boundary used by CLI and MCP."""
 
+import os
 import shlex
 import subprocess
 from pathlib import Path
 
-from arc.git_evidence import snapshot
+from arc.git_evidence import current_branch, current_head, snapshot
 from arc.handoff import select_handoff_evidence
 from arc.incidents import MIN_SEMANTIC_SIMILARITY, select_incident_matches
-from arc.memory import Embedder, MemoryEngine, redact
+from arc.memory import Embedder, EmbeddingUnavailable, MemoryEngine, redact
 from arc.store import Store, utc_now
 
 NOTE_KINDS = {"note", "decision", "attempt", "error", "claim"}
@@ -33,6 +34,76 @@ class ArcService:
             raise ValueError(f"Project is not registered: {path.resolve()}. Run 'arc init' first.")
         return project
 
+    def _ensure_recording(self, project_id: str) -> None:
+        if self.store.recording_paused(project_id):
+            raise ValueError("Recording is paused for this project. Resume it before saving new evidence.")
+
+    def list_projects(self) -> list[dict]:
+        return [{"id": project["id"], "name": project["name"],
+                 "path": project["path"],
+                 "has_test_command": bool(project["test_command"])}
+                for project in self.store.projects()]
+
+    def recording_status(self, path: Path) -> dict:
+        project = self._project(path)
+        return {"recording_paused": self.store.recording_paused(project["id"]),
+                "scope": "all new evidence for this project, including automatic observation"}
+
+    def set_recording_paused(self, path: Path, paused: bool) -> dict:
+        project = self._project(path)
+        result = self.store.set_recording_paused(project["id"], paused)
+        if not paused and self.store.observation_state(project["id"])["enabled"]:
+            # Resuming establishes a fresh baseline: commits made while paused
+            # are deliberately unrecorded, so the cursor moves to current HEAD.
+            root = Path(project["path"])
+            self.store.set_observation_cursor(
+                project["id"], current_head(root), current_branch(root))
+        return result
+
+    def _observation_view(self, project_id: str, state: dict | None = None) -> dict:
+        state = state or self.store.observation_state(project_id)
+        pid = state["worker_pid"]
+        alive = False
+        if pid:
+            try:
+                os.kill(int(pid), 0)
+                alive = True
+            except (OSError, ValueError):
+                alive = False
+        return {"enabled": bool(state["enabled"]), "worker_pid": pid,
+                "worker_process_alive": alive, "heartbeat_at": state["heartbeat_at"],
+                "cursor_head": state["cursor_head"],
+                "cursor_branch": state["cursor_branch"],
+                "session_id": state["session_id"], "updated_at": state["updated_at"]}
+
+    def start_observation(self, path: Path) -> dict:
+        project = self._project(path)
+        state = self.store.set_observation_enabled(project["id"], True)
+        return {"project": {"id": project["id"], "name": project["name"],
+                            "path": project["path"]},
+                "observation": self._observation_view(project["id"], state),
+                "note": "Run 'arc watch' in a terminal to collect file and Git activity."}
+
+    def stop_observation(self, path: Path) -> dict:
+        project = self._project(path)
+        state = self.store.set_observation_enabled(project["id"], False)
+        return self._observation_view(project["id"], state)
+
+    def observation_status(self, path: Path) -> dict:
+        project = self._project(path)
+        view = self._observation_view(project["id"])
+        view["recording_paused"] = self.store.recording_paused(project["id"])
+        view["observed_events"] = self.store.watcher_event_count(project["id"])
+        view["scope"] = ("file changes and new commits; a file event never marks "
+                         "a task tested or confirmed")
+        return view
+
+    def clear_project_memory(self, path: Path, confirmation: str) -> dict:
+        project = self._project(path)
+        if confirmation != f"DELETE {project['name']}":
+            raise ValueError(f"Type DELETE {project['name']} to clear this project's A.R.C. memory")
+        return self.store.clear_project_memory(project["id"])
+
     def _task(self, project_id: str, task_id: str) -> dict:
         task = self.store.get_task(task_id)
         if not task or task["project_id"] != project_id:
@@ -44,12 +115,14 @@ class ArcService:
         if not title.strip():
             raise ValueError("Task title must not be empty")
         project = self._project(path)
+        self._ensure_recording(project["id"])
         return self.store.add_task(project["id"], redact(title.strip()))
 
     def start_session(self, path: Path, label: str = "Development session") -> dict:
         if not label.strip():
             raise ValueError("Session label must not be empty")
         project = self._project(path)
+        self._ensure_recording(project["id"])
         return self.store.start_session(project["id"], redact(label.strip()))
 
     def end_session(self, path: Path) -> dict:
@@ -78,6 +151,7 @@ class ArcService:
         if not text.strip():
             raise ValueError("Note text must not be empty")
         project = self._project(path)
+        self._ensure_recording(project["id"])
         if task_id:
             self._task(project["id"], task_id)
         if kind == "claim" and not task_id:
@@ -101,6 +175,7 @@ class ArcService:
     def open_incident(self, path: Path, error_event_id: str,
                       cause: str | None = None) -> dict:
         project = self._project(path)
+        self._ensure_recording(project["id"])
         error = self.get_event(path, error_event_id)
         if error["kind"] != "error":
             raise ValueError("An incident must start from a recorded error note")
@@ -175,6 +250,7 @@ class ArcService:
     def add_incident_attempt(self, path: Path, incident_id: str, text: str,
                              outcome: str = "inconclusive") -> dict:
         project = self._project(path)
+        self._ensure_recording(project["id"])
         incident = self._incident(project["id"], incident_id)
         if incident["resolved_at"]:
             raise ValueError("This incident is resolved; open a new incident for a new failure")
@@ -194,6 +270,7 @@ class ArcService:
     def link_incident_attempt(self, path: Path, incident_id: str,
                               attempt_event_id: str, outcome: str = "inconclusive") -> dict:
         project = self._project(path)
+        self._ensure_recording(project["id"])
         incident = self._incident(project["id"], incident_id)
         if incident["resolved_at"]:
             raise ValueError("This incident is resolved; open a new incident for a new failure")
@@ -212,6 +289,7 @@ class ArcService:
                          cause: str | None = None,
                          test_event_id: str | None = None) -> dict:
         project = self._project(path)
+        self._ensure_recording(project["id"])
         incident = self._incident(project["id"], incident_id)
         if incident["resolved_at"]:
             raise ValueError("This incident already has a reported resolution")
@@ -282,6 +360,7 @@ class ArcService:
 
     def capture_git(self, path: Path, task_id: str | None = None) -> dict:
         project = self._project(path)
+        self._ensure_recording(project["id"])
         if task_id:
             self._task(project["id"], task_id)
         observed = snapshot(Path(project["path"]))
@@ -298,6 +377,7 @@ class ArcService:
     def run_test(self, path: Path, task_id: str | None = None,
                  timeout_seconds: int = 120) -> dict:
         project = self._project(path)
+        self._ensure_recording(project["id"])
         if task_id:
             self._task(project["id"], task_id)
         command = project["test_command"]
@@ -389,6 +469,7 @@ class ArcService:
         if not reason.strip():
             raise ValueError("A task correction needs a reason")
         project = self._project(path)
+        self._ensure_recording(project["id"])
         task = self._task(project["id"], task_id)
         observed = snapshot(Path(project["path"]))
         before = self._task_state(project["id"], task, observed.fingerprint)
@@ -463,6 +544,7 @@ class ArcService:
 
     def confirm_task(self, path: Path, task_id: str) -> dict:
         project = self._project(path)
+        self._ensure_recording(project["id"])
         task = self._task(project["id"], task_id)
         observed = snapshot(Path(project["path"]))
         state = self._task_state(project["id"], task, observed.fingerprint)
@@ -486,6 +568,9 @@ class ArcService:
         return {
             "project": {"id": project["id"], "name": project["name"],
                         "path": project["path"]},
+            "recording": self.recording_status(path),
+            "observation": self._observation_view(project["id"]),
+            "memory_index": self.store.index_counts(project["id"], self.memory.embedder.model),
             "active_session": self.store.active_session(project["id"]),
             "git": {"head": observed.head, "fingerprint": observed.fingerprint,
                     "changed_paths": list(observed.changed_paths)},
@@ -578,6 +663,40 @@ class ArcService:
     def index_memory(self, path: Path) -> dict:
         return self.memory.index_pending(self._project(path)["id"])
 
+    def local_ai_status(self) -> dict:
+        model = self.memory.embedder.model
+        try:
+            vector = self.memory.embedder.embed("A.R.C. local AI status")
+            return {"status": "ready", "model": model,
+                    "vector_dimensions": len(vector), "local_only": True}
+        except EmbeddingUnavailable as error:
+            return {"status": "unavailable", "model": model,
+                    "reason": str(error), "local_only": True}
+
+    def project_timeline(self, path: Path, limit: int = 40, offset: int = 0,
+                         kind: str | None = None) -> dict:
+        project = self._project(path)
+        limit = min(max(limit, 1), 100)
+        offset = max(offset, 0)
+        events, total = self.store.timeline(project["id"], limit, offset, kind)
+        return {"events": [{"id": event["id"], "kind": event["kind"],
+                            "summary": event["summary"], "source": event["source"],
+                            "source_ref": event["source_ref"],
+                            "created_at": event["created_at"],
+                            "task_id": event["task_id"],
+                            "session_id": event["session_id"]} for event in events],
+                "total": total, "offset": offset, "limit": limit,
+                "has_more": offset + len(events) < total}
+
+    def checkpoint_history(self, path: Path, limit: int = 20) -> list[dict]:
+        project = self._project(path)
+        current_fingerprint = snapshot(Path(project["path"])).fingerprint
+        checkpoints = self.store.checkpoints(project["id"], min(max(limit, 1), 100))
+        return [{"id": item["id"], "created_at": item["created_at"],
+                 "stale": item["fingerprint"] != current_fingerprint,
+                 "status": "candidate_unconfirmed", "payload": item["payload"]}
+                for item in checkpoints]
+
     def search_memory(self, path: Path, query: str, limit: int = 5,
                       allow_keyword_fallback: bool = True,
                       kind: str | None = None, keyword_only: bool = False,
@@ -608,6 +727,7 @@ class ArcService:
 
     def create_checkpoint(self, path: Path) -> dict:
         project = self._project(path)
+        self._ensure_recording(project["id"])
         state = self.project_state(path)
         payload = {"project": state["project"], "git": state["git"],
                    "tasks": state["tasks"], "recent_events": state["recent_events"],

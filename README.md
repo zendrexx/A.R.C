@@ -2,7 +2,7 @@
 
 A.R.C. is a local development-memory prototype. It records **selected** Git state, explicit notes, task claims, and configured test results in SQLite. A local Ollama embedding model makes those records searchable by meaning. A stdio MCP server lets a new Codex session request an evidence-backed project handoff.
 
-This repository implements the core CLI/MCP prototype through Phase 5 of [the product plan](docs/DEVELOPMENT_PLAN.md). It has explicit session grouping, local search, auditable task correction/review, compact handoffs, and linked debugging incidents. File watching, the dashboard, and the offline chatbot are later phases.
+This repository implements the CLI/MCP prototype, a local browser dashboard, and opt-in file/Git observation for Phase 8 of [the product plan](docs/DEVELOPMENT_PLAN.md). It has explicit session grouping, local search, auditable task correction/review, compact handoffs, and linked debugging incidents. Automatic indexing and the offline chatbot are later phases.
 
 One developer owns implementation; the teammate owns documentation, test records, and video promotion. Use the [project workflow](docs/PROJECT_WORKFLOW.md) for the current commands and implementation order, the [documentation/video checklist](docs/DOCUMENTATION_AND_VIDEO.md) for presentation work, and the [test evidence log](docs/TEST_RESULTS.md) for recorded results. A.R.C. reads local Git state; a Git push is needed only to share source or documentation between machines.
 
@@ -32,6 +32,34 @@ arc state
 ```
 
 `arc index` sends the selected event summaries only to Ollama on `127.0.0.1`. Default search keeps cosine-ranked semantic results and says `"mode": "semantic"`. If Ollama is unavailable or records have not been indexed, ordinary search labels its FTS5 results `keyword_fallback`; `--semantic-only` instead requires the model and reports when indexing is needed. Indexing is still manual in this phase.
+
+## Open the local dashboard
+
+After the setup above, run this from the repository root:
+
+```bash
+source .venv/bin/activate
+export ARC_DB="$PWD/.arc/arc.sqlite3"
+arc dashboard
+```
+
+The command opens `http://127.0.0.1:8765/` in your browser. Keep that terminal open; press `Ctrl+C` to stop the dashboard. If the browser does not open, copy the address printed by the command. Use `arc dashboard --no-browser --port 8766` if you want to open it yourself or port 8765 is occupied. The browser shows registered projects, source-linked handoff, search, task evidence, timeline, checkpoints, incidents, and local AI status. The Settings view can pause new manual records and permanently clear one project's A.R.C. memory after you type its exact confirmation phrase. Deletion keeps your source files and project registration.
+
+The dashboard runs only on loopback and uses the same `ArcService` and SQLite database as the CLI and MCP server. It does not start sessions, run tests, watch files, or index new events on its own. Use `arc watch`, `arc capture`, `arc test`, and `arc index` to record and index development activity. The dashboard's **Index pending events** button runs the same local indexing operation. Its **Check local model** button tests `all-minilm` on your computer; the rest of the dashboard is usable without Ollama.
+
+## Watch a project automatically
+
+`arc watch` is an opt-in foreground worker for the selected registered project. Keep its terminal open while you work:
+
+```bash
+arc watch            # Ctrl+C to stop
+arc observe status   # worker, cursor, and pause state from another terminal
+arc observe pause    # suspend all new recording for this project
+arc observe resume   # resume; anything changed while paused is not imported
+arc observe stop     # turn the opt-in off; a running worker exits
+```
+
+While running, the worker records one `file_change` event per stable change (ten unchanged saves stay one record), and one `commit` event per new commit — including commits made while no worker was running, recovered through a persisted Git cursor. Generated directories and sensitive paths such as `.env` are skipped before anything is stored, and file contents are never recorded — only the path and a content hash. An observed event can never mark a task tested or confirmed; that still requires the explicit `arc capture`/`arc test`/`arc task confirm` evidence.
 
 The setup commands register the real project database without adding sample incidents. For a separate example run, use the [first hands-on test](#first-hands-on-test). For actual development, start a session and follow [the current-use steps](docs/PROJECT_WORKFLOW.md#use-the-current-prototype).
 
@@ -84,7 +112,7 @@ arc incident search "Database upgrade crashed: missing users table during migrat
 
 Use `arc incident link-attempt INCIDENT_ID ATTEMPT_EVENT_ID --outcome failed` for a pre-existing attempt note, and `arc incident list` to inspect recorded incidents. A reported resolution is an explicit statement, not an automatic proof of a fix. A linked test must have passed after the error at the current Git fingerprint when attached; later changes mark it historical. Search returns **candidates**, separates explicitly different recorded causes, and rejects weak semantic matches. If the new cause is unknown, omit `--cause` and inspect the history before reusing an earlier resolution. New incident events need `arc index` before semantic search; without Ollama, a conservative keyword fallback remains available.
 
-**No GitHub push is needed.** A.R.C. reads the local Git repository, including uncommitted edits and new untracked files; it does not require a commit, a remote, or internet access. In the current prototype, recording is explicit: run `arc capture` after relevant changes, `arc test` to record a configured test run, and `arc index` to make new events semantically searchable. Automatic file observation and automatic session start/stop are future work.
+**No GitHub push is needed.** A.R.C. reads the local Git repository, including uncommitted edits and new untracked files; it does not require a commit, a remote, or internet access. Recording stays explicit by default: run `arc capture` after relevant changes, `arc test` to record a configured test run, and `arc index` to make new events semantically searchable. `arc watch` adds opt-in automatic observation; automatic indexing and automatic session start/stop are future work.
 
 ## First hands-on test
 
@@ -137,11 +165,15 @@ The [official Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp) docume
 python -m pytest -q
 ```
 
-The tests cover unverified claims, auditable task correction, current versus stale tests and confirmations, handoff selection, incident links and cause separation, checkpoint freshness, privacy filtering, session grouping and migration, semantic ranking, keyword fallback, and real stdio MCP client/server calls. Live-model tests run when local Ollama and `all-minilm` are available; otherwise they skip. Run `python -m scripts.evaluate_retrieval` for the fixed seven-record semantic-versus-keyword comparison. The user-reported disconnected-network result still needs captured terminal output for the hackathon evidence package.
+The tests cover unverified claims, auditable task correction, current versus stale tests and confirmations, handoff selection, incident links and cause separation, checkpoint freshness, privacy filtering, session grouping and migration, semantic ranking, keyword fallback, local dashboard routes and controls, and real stdio MCP client/server calls. Live-model tests run when local Ollama and `all-minilm` are available; otherwise they skip. Run `python -m scripts.evaluate_retrieval` for the fixed seven-record semantic-versus-keyword comparison. The user-reported disconnected-network result still needs captured terminal output for the hackathon evidence package.
+
+For Phase 7's larger labelled incident check, run `python -m scripts.evaluate_incidents`. Its synthetic data stay in a temporary database. Read [the measured results and limits](docs/PHASE7_VALIDATION.md), use [the field-trial and recording runbook](docs/PHASE7_DEMO.md), and open [the local presentation deck](docs/PITCH_DECK.html) in a browser. These materials do not replace a recorded offline trial or an unfamiliar-user trial.
+
+The runbook includes `python -m scripts.verify_phase7_journey` to repeat the real database's dashboard, semantic search, and checkpoint read path. It checks loopback use but does not turn off the Mac's network connection.
 
 ## Project roles and next gate
 
 The implementation developer owns Python, SQLite, local retrieval, CLI, MCP, and future interface work. The teammate owns the setup walkthrough, test evidence log, presentation, and video. The shared technical flow is **recorded event → SQLite `events` row → embedding indexed by event ID → search hit with source reference**. See [implementation notes](docs/IMPLEMENTATION.md) for the interfaces.
 
-Phase 5's linked incident history and conservative local search work in the CLI and MCP. A controlled live-model test retrieved a paraphrased prior error, separated a different cause, and rejected an unrelated query. Phase 6 interface work is next; [the project workflow](docs/PROJECT_WORKFLOW.md#implementation-order) lists the order. The saved MCP entry on this machine still points to the trial database; the workflow gives the exact switch for normal use.
+Phase 6's dashboard implementation is ready for a manual browser trial. Its automated HTTP checks cover project selection data, handoff, source-linked records, pause, and project-scoped deletion. The remaining Phase 6 completion gate is an unfamiliar person opening the dashboard and finding an unfinished task without developer help. The saved MCP entry on this machine still points to the trial database; [the project workflow](docs/PROJECT_WORKFLOW.md#make-codex-read-the-real-database) gives the exact switch for normal use.
 
