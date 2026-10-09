@@ -325,7 +325,9 @@ class Store:
                  kind: str | None = None, since: str | None = None,
                  until: str | None = None, snapshot_rowid: int | None = None,
                  task_id: str | None = None,
-                 kinds: tuple[str, ...] | None = None) -> dict:
+                 kinds: tuple[str, ...] | None = None,
+                 collapse_observations: bool = False,
+                 offset_minutes: int = 0) -> dict:
         def utc(value):
             if not value:
                 return None
@@ -363,11 +365,49 @@ class Store:
             args.append(until)
         where = ' AND '.join(clauses)
         total = self.connection.execute('SELECT COUNT(*) FROM events WHERE ' + where, args).fetchone()[0]
-        rows = self.connection.execute('SELECT * FROM events WHERE ' + where +
-            ' ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?', (*args, limit, offset))
-        events = [self._event(row) for row in rows]
+        if collapse_observations:
+            if not -840 <= offset_minutes <= 840:
+                raise ValueError('Timezone offset must be within 14 hours of UTC')
+            # Keep one inspectable representative for Git watcher activity within
+            # each local day. All individual events remain in the raw timeline.
+            base = ('''WITH base AS (
+                SELECT events.*, events.rowid AS event_rowid,
+                  CASE WHEN kind='git' AND source='observer'
+                    THEN 'observer:' || date(created_at, ?)
+                    ELSE id END AS group_key
+                FROM events WHERE ''' + where + '''
+              ), ranked AS (
+                SELECT base.*, ROW_NUMBER() OVER (
+                  PARTITION BY group_key ORDER BY created_at DESC, event_rowid DESC
+                ) AS group_rank,
+                COUNT(*) OVER (PARTITION BY group_key) AS repeated_count
+                FROM base
+              )''')
+            arguments = (f'{offset_minutes:+d} minutes', *args)
+            total_entries = self.connection.execute(
+                base + ' SELECT COUNT(*) FROM ranked WHERE group_rank=1', arguments
+            ).fetchone()[0]
+            rows = self.connection.execute(
+                base + ''' SELECT * FROM ranked WHERE group_rank=1
+                          ORDER BY created_at DESC, event_rowid DESC LIMIT ? OFFSET ?''',
+                (*arguments, limit, offset),
+            )
+            events = []
+            for row in rows:
+                event = self._event(row)
+                event['repeat_count'] = event.pop('repeated_count')
+                for extra in ('event_rowid', 'group_key', 'group_rank'):
+                    event.pop(extra)
+                events.append(event)
+        else:
+            total_entries = total
+            rows = self.connection.execute('SELECT * FROM events WHERE ' + where +
+                ' ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?', (*args, limit, offset))
+            events = [self._event(row) for row in rows]
         return {'events': events, 'total_events': total, 'snapshot_rowid': snapshot_rowid,
-                'next_offset': offset + len(events) if offset + len(events) < total else None}
+                'total_entries': total_entries,
+                'next_offset': offset + len(events)
+                if offset + len(events) < total_entries else None}
 
     def timeline_days(self, project_id: str, snapshot_rowid: int,
                       offset_minutes: int = 0, since: str | None = None,

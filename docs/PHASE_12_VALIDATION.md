@@ -17,7 +17,7 @@ Unchecked items have not passed. Integrated checks require Phases 8–10.
 |---|---|
 | Observer idle CPU/RAM | Not measured |
 | Model cold-start/RAM/swap | Not measured |
-| Search/chat latency | One warm offline trial: semantic CLI search 143.1 ms; cited local chat 4,842.0 ms; fresh MCP handoff and event 1,518.1 ms. These are end-to-end timings, not a benchmark. |
+| Search/chat latency | First warm offline trial: semantic CLI search 143.1 ms, cited chat 4,842.0 ms, fresh MCP 1,518.1 ms. Phase 10 offline run: deterministic questions 174–546 ms, model-selected handoff 15,274.5 ms, named rationale 5,278.9 ms. These are end-to-end single-run timings, not a benchmark. |
 | Missed/duplicate events | Not measured |
 | Queue recovery and SQLite size | Not measured |
 | Citation/date accuracy and retrieval misses | Not measured |
@@ -39,3 +39,7 @@ The validator command, run while Wi-Fi was off, was:
 ```
 
 This closes the specific physical network-off search/chat/MCP check. It did not exercise VS Code, a full observer/test workflow while offline, or an on-camera offline demo; those checks remain open above.
+
+## Phase 10 offline question trial — 2026-10-10
+
+The [Phase 10 report](phase10-offline-report.json) records a second physical Wi-Fi-off run on the same M1 8 GB Mac at 01:55 Manila time. External TCP was unreachable. The six planned questions and a named dashboard-rationale question ran against the real A.R.C. database; every returned citation resolved to its project event. The unnamed “this feature” rationale question returned no citation, and the error/fix question did not claim an unrecorded fix. The timeline exposed older history through `next_offset` and a stable snapshot. Wi-Fi was restored afterward. This targeted run supports Phase 10; it does not replace the open extension-host, full workflow, accuracy calibration, or resource measurements above.

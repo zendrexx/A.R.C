@@ -127,6 +127,22 @@ arc incident search "Describe a similar error"
 
 Omit `--cause` if the cause is unknown. A reported resolution is a record of what someone said worked, not automatic proof of a fix. Search returns candidates and keeps explicitly different causes separate. You can attach a passing current test to a resolution with `--test-event TEST_ID`; see `arc incident resolve --help` and the [implementation notes](docs/IMPLEMENTATION.md).
 
+## Ask about project history
+
+After the models are installed, ask questions in the CLI or VS Code Chat view:
+
+```bash
+arc chat "What happened yesterday?"
+arc chat "What errors did we fix?"
+arc chat "Why did we use a local browser dashboard?"
+arc chat "Summarize our development timeline"
+arc chat "What happened from 2026-10-01 to 2026-10-09?" --timezone-offset 480
+```
+
+Calendar words use the machine's current UTC offset by default; `--timezone-offset 480` explicitly means UTC+08:00. A named task or its ID retrieves its linked history and current evidence state. A “why” answer needs a recorded decision, cause, explanatory note, or commit message; a changed file alone cannot establish the reason. “What errors did we fix?” shows linked *reported* resolutions and identifies whether a configured test is linked and still current. It does not claim that a test proves the error is fixed.
+
+Timeline answers count activity by local day, group repeated Git watcher observations into one cited example per day, and show earlier milestones. The raw `arc timeline` command retains every event. When chat returns `next_offset` and `snapshot_rowid`, pass both back as `arc chat "same question" --offset N --snapshot S` to load the next stable page; VS Code has a **Load older history** button. `arc chat "question" --keyword-only` works without Ollama and keeps the same evidence labels. The [Phase 10 offline report](docs/phase10-offline-report.json) records the seven-question real-model trial.
+
 ## Use A.R.C. in VS Code
 
 The extension is currently run from source. Install VS Code 1.90+ and Node.js/npm, then:

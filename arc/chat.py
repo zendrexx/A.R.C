@@ -118,8 +118,10 @@ def _question_bounds(question: str, offset_minutes: int, now=None):
 
 
 def _is_rationale(event: dict) -> bool:
-    return (event['kind'] == 'decision' or bool(event['details'].get('commit_message'))
-            or (event['kind'] == 'note' and bool(RATIONALE_WORDS.search(event['summary']))))
+    return (event['kind'] in {'decision', 'incident_cause'}
+            or bool(event['details'].get('commit_message'))
+            or (event['kind'] in {'note', 'error'}
+                and bool(RATIONALE_WORDS.search(event['summary']))))
 
 
 def _subject_terms(question: str) -> set[str]:
@@ -172,8 +174,11 @@ def _local_stamp(value: str, offset_minutes: int) -> str:
 
 
 def _line(event: dict, fingerprint: str, offset_minutes: int) -> str:
+    repeated = event.get('repeat_count', 1)
+    repeat_note = (f' (latest example of {repeated} observer Git events this local day; '
+                   'inspect the full timeline for every change)') if repeated > 1 else ''
     return (f"[{event['source_ref']}] {_local_stamp(event['created_at'], offset_minutes)} · "
-            f"{_label(event, fingerprint)}: {event['summary']}")
+            f"{_label(event, fingerprint)}: {event['summary']}{repeat_note}")
 
 
 def _unique(events: list[dict], limit: int = PAGE_SIZE) -> list[dict]:
@@ -220,7 +225,9 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
     review = None
     overview = None
     day_counts = None
+    milestones = []
     use_model = False
+    model_rejected_candidates = False
     if fix_question:
         page = service.store.timeline(project['id'], 4, offset, kind='resolution',
                                       since=since, until=until,
@@ -249,7 +256,8 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
         retrieval = 'linked_incidents'
     elif rationale and (since or until):
         page = service.store.timeline(project['id'], PAGE_SIZE, offset,
-                                      kinds=('decision', 'note', 'observer_commit'),
+                                      kinds=('decision', 'note', 'observer_commit',
+                                             'incident_cause', 'error'),
                                       since=since, until=until,
                                       snapshot_rowid=snapshot_rowid)
         events = [event for event in page['events'] if _is_rationale(event)]
@@ -289,11 +297,19 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
         page = service.store.timeline(project['id'], PAGE_SIZE, offset,
                                       kind='error' if error_question else None,
                                       since=since, until=until,
-                                      snapshot_rowid=snapshot_rowid)
+                                      snapshot_rowid=snapshot_rowid,
+                                      collapse_observations=True,
+                                      offset_minutes=offset_minutes)
         events = page['events']
         retrieval = 'timeline'
         day_counts = service.store.timeline_days(project['id'], page['snapshot_rowid'],
             offset_minutes, since, until, 'error' if error_question else None)
+        if broad and not period and not error_question and offset == 0:
+            key_evidence = service.project_handoff(path, 6)['key_evidence']
+            important = {'decision', 'failure', 'resolution', 'attempt', 'correction'}
+            page_ids = {event['id'] for event in events}
+            milestones = [service.get_event(path, item['id']) for item in key_evidence
+                          if item['category'] in important and item['id'] not in page_ids][:4]
     else:
         found = service.search_memory(path, question, PAGE_SIZE, keyword_only=keyword_only)
         events = [service.get_event(path, hit['event_id']) for hit in found['hits']]
@@ -304,6 +320,7 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
         try:
             with model_slot(service.store):
                 ids = chat.select(question, events)
+            model_rejected_candidates = not ids
             events = [e for e in events if e['id'] in ids]
             mode = 'local_model_selection'
         except (EmbeddingUnavailable, URLError, TimeoutError, OSError, ValueError, KeyError, TypeError) as error:
@@ -315,7 +332,7 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
     lines = []
     if not events:
         if review:
-            state = review['current_state']
+            state = review['task']
             text = (f"Task {state['title']} ({state['id']}) currently has evidence state "
                     f"{state['state']}. No linked event was recorded for this page.")
             if review['missing']:
@@ -325,6 +342,9 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
             text = (f"Suggested next task: {suggested['title']} ({suggested['id']}); "
                     f"current state: {suggested['state']}. {suggested['next_step']}. "
                     'No supporting event was selected for this answer.')
+        elif model_rejected_candidates:
+            text = ('The local model selected no relevant evidence from the retrieved '
+                    'candidates. Inspect the search results if needed.')
         elif rationale:
             text = 'No recorded rationale supports this answer.'
         elif fix_question:
@@ -357,25 +377,33 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
                 else:
                     lines.append('No unfinished task is recorded.')
             if review:
-                state = review['current_state']
+                state = review['task']
                 lines.append(f"Task {state['title']} ({state['id']}) currently has evidence state "
                              f"{state['state']}.")
                 if review['missing']:
                     lines.append('Still needed: ' + '; '.join(review['missing']))
             if page and retrieval == 'timeline':
                 label = period or ('Recorded errors' if error_question else 'Project timeline')
-                lines.append(f'{label}: {page["total_events"]} recorded event(s); '
-                             f'showing {len(events)} on this page in chronological order.')
+                entries = page['total_entries']
+                raw = page['total_events']
+                lines.append(f'{label}: {raw} recorded event(s), {entries} history '
+                             f'entries after observer Git events are grouped by local day; showing '
+                             f'{len(events)} on this page in chronological order.')
                 if day_counts and day_counts['days']:
                     buckets = ', '.join(f"{day['date']}: {day['event_count']}"
                                         for day in day_counts['days'])
                     lines.append(f'Activity by local day (latest 14): {buckets}' +
                                  ('; older days available in history.'
                                   if day_counts['truncated'] else '.'))
+                if milestones:
+                    lines.append('Selected earlier milestones (not a complete history):')
+                    lines.extend(_line(event, fingerprint, offset_minutes)
+                                 for event in reversed(milestones))
+                    lines.append('Recent history page:')
             elif page and retrieval == 'task_history':
                 lines.append(f'{page["total_events"]} linked event(s); showing {len(events)} on this page.')
             elif rationale:
-                lines.append('Recorded rationale from explicit decisions, notes, or commit messages:')
+                lines.append('Recorded rationale from decisions, notes, incident causes, or commit messages:')
             else:
                 lines.append('Recorded project evidence:')
             ordered = list(reversed(events)) if page else events
@@ -383,9 +411,12 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
         text = '\n'.join(lines)
     if next_offset is not None:
         text += '\nMore history is available; continue with next_offset and snapshot_rowid.'
+    citation_events = _unique([*events, *milestones], PAGE_SIZE + 4)
     return {'answer': text, 'mode': mode, 'retrieval_mode': retrieval,
-            'citations': [{k: e[k] for k in ('id', 'source_ref', 'created_at', 'summary')} for e in events],
+            'citations': [{k: e[k] for k in ('id', 'source_ref', 'created_at', 'summary')}
+                          for e in citation_events],
             'next_offset': next_offset, 'snapshot_rowid': snapshot_rowid,
             'since': since, 'until': until, 'notice': notice,
             'total_events': page['total_events'] if page else None,
+            'total_entries': page['total_entries'] if page else None,
             'period': period, 'day_counts': day_counts}

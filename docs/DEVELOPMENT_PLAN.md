@@ -652,9 +652,9 @@ Allows developers to inspect, search, correct, and control their stored project 
 
 Runs only for a project the user has enabled. It coalesces file changes, checks local Git state and new commits, accepts results from supported test integrations, and writes source-labelled events to the existing SQLite store. A standalone `arc watch` path can observe work outside VS Code while running; a saved Git cursor can recover commits when observation restarts. Pause and disable controls stop collection. An intentional pause must not silently backfill activity from the paused period.
 
-### Future Component I — Offline Answer Engine
+### Component I — Offline Answer Engine
 
-Parses the question's project and time range, retrieves bounded evidence from SQLite using FTS5, embeddings, and filters, then asks local `qwen3:1.7b` to answer using those records. It checks that cited event references exist before showing an answer and states when evidence is missing. Long timelines use time-window aggregation and retrieval in batches; the full history is never placed in one model prompt.
+Parses local calendar words and date ranges, then uses project-scoped SQLite filters, FTS5, and `all-minilm` embeddings to retrieve bounded evidence. Local `qwen3:1.7b` selects source IDs for semantic and handoff questions; A.R.C. validates those IDs and builds the answer from recorded facts. It labels claims, historical tests, and reported resolutions accurately. Timeline answers count activity by local day, group repeated Git watcher events for readability, include selected earlier milestones, and provide stable continuation. The model never receives the full archive in one prompt.
 
 ### Future Component J — VS Code Bridge
 
@@ -1041,9 +1041,9 @@ The main user journey succeeds repeatedly on the demo machine with no cloud depe
 
 ## Future expansion after Phase 7
 
-Phases 0–7 remain the current MVP roadmap. The following phases are ordered so automatic, trustworthy evidence exists before the chatbot and extension present it. **Phase 8 is now implemented** (see its status note); Phases 9–12 remain future work. The original estimates assumed parallel coding and must be re-estimated for one implementation developer after the MVP gates and measurement on the Mac M1 with 8GB unified memory.
+Phases 0–7 remain the original MVP roadmap. The following phases describe the expansion after that roadmap. Phases 8–11 have working implementations; Phase 10's focused offline gate passed on 2026-10-10. Phase 12 integrated, visual, and resource validation remains open. The original estimates assumed parallel coding and are historical rather than current forecasts.
 
-| Order | Future phase | Original estimate | Dependency | User-visible milestone |
+| Order | Phase | Original estimate | Dependency | User-visible milestone |
 |---|---|---:|---|---|
 | 1 | Phase 8 — Automatic observation | 2–3 days | Phase 1 recording and privacy rules | Meaningful file and Git activity appears without `arc capture` |
 | 2 | Phase 9 — Evidence and indexing | 2–3 days | Phase 8 event stream; Phase 2 embeddings | Supported test results and new memories are indexed without `arc index` |
@@ -1104,9 +1104,11 @@ Keep searchable memory current and attach trustworthy test and error evidence wh
 - Replaying watcher and test notifications does not create duplicate evidence. Existing CLI and MCP tests still pass after the schema migration.
 - A failed check followed by a passing check is reported with both timestamps; task completion still requires the original verification rules and confirmation.
 
-## Phase 10 — Offline Evidence-Backed Chat (Future)
+## Phase 10 — Offline Evidence-Backed Chat (Implemented)
 
 **Target: 3–4 working days after Phase 9**
+
+**Implementation and focused acceptance (2026-10-10):** `arc/chat.py` now routes local-day and explicit-date questions, task histories, error/resolution histories, rationale, handoff, and long timelines to bounded project-scoped evidence. It groups repeated observer Git events by local day for chat summaries while leaving the raw timeline intact, adds local-day counts and earlier source-linked milestones, and uses snapshot-stable continuation. `qwen3:1.7b` selects source IDs only; deterministic rendering preserves verification labels and handles missing rationale without inventing an explanation. [The recorded M1 8 GB Wi-Fi-off run](phase10-offline-report.json) passed the six questions below plus a named dashboard-rationale question; outbound TCP was unreachable and all returned citation IDs resolved. Python tests passed 48/48 and extension tests passed 12/12. This focused gate does not close the Phase 12 VS Code visual, full workflow, resource, or broader accuracy checks.
 
 ### Objective
 
@@ -1114,10 +1116,10 @@ Answer questions about the project's history through local retrieval and `qwen3:
 
 ### Implementation order
 
-1. Validate `qwen3:1.7b` on the actual M1 8GB machine and add a local-only Ollama chat adapter. Pull the model during setup, use it only for chat requests, limit simultaneous generation to one request, and release it after idle time. Keep `all-minilm` as the retrieval model.
+1. Validate `qwen3:1.7b` on the actual M1 8GB machine and add a local-only Ollama chat adapter. Pull the model during setup, use it only for chat requests, limit simultaneous generation to one request, and unload it after each request. Keep `all-minilm` as the retrieval model.
 2. Add deterministic SQLite queries for **today**, **yesterday**, a date range, task, error, fix, and chronological timeline. Store UTC timestamps and apply the selected local time zone when interpreting calendar words. A “why” answer needs a recorded rationale such as a decision, task note, or commit message; a diff alone cannot establish intent.
 3. Retrieve a bounded set of source-linked events using filters, FTS5, and embeddings. For a long project timeline, walk time windows or milestones and summarize each with its references; support continuation or pagination if the whole period cannot be represented faithfully in one answer.
-4. Ask the model to answer only from retrieved evidence. Validate cited IDs against the retrieved set, distinguish observed facts from proposed reasons or fixes, and say when no recorded evidence supports an answer. Chat text cannot alter task verification status or run commands.
+4. Let the local model select only from retrieved source IDs, validate its selection, and render the answer from recorded evidence. Distinguish observed facts from proposed reasons or fixes, and say when no recorded evidence supports an answer. Chat text cannot alter task verification status or run commands.
 
 ### Milestone and acceptance
 
