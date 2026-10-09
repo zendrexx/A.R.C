@@ -1,0 +1,24 @@
+{
+  "name": "arc-logo-animation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A 6.5-second A.R.C logo and tagline reveal, made with Remotion.",
+  "scripts": {
+    "start": "remotion studio src/index.ts",
+    "check": "tsc --noEmit",
+    "render": "remotion render src/index.ts ArcLogo out/arc-logo.mp4 --codec=h264 --crf=16 --concurrency=2",
+    "poster": "remotion ffmpeg -hide_banner -loglevel error -y -ss 5 -i out/arc-logo.mp4 -frames:v 1 out/arc-logo.png",
+    "gif": "remotion ffmpeg -hide_banner -loglevel error -y -i out/arc-logo.mp4 -r 20 -s 960x540 -frames:v 130 -loop 0 out/arc-logo.gif"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.534",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "4.0.534"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}

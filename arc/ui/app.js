@@ -14,7 +14,7 @@ const initialParameters = new URL(location.href).searchParams;
 const initialPane = initialParameters.get("pane");
 const state = {
   projects: [], project: null, pane: titles[initialPane] ? initialPane : "overview",
-  timelineOffset: 0, taskId: initialParameters.get("task"),
+  timelineOffset: 0, taskId: initialParameters.get("task"), viewVersion: 0,
 };
 const el = (id) => document.getElementById(id);
 const node = (tag, className, value) => {
@@ -36,6 +36,7 @@ function toast(message, error = false) {
 }
 
 async function api(route, params = {}, data) {
+  const viewVersion = state.viewVersion;
   const url = new URL(route, location.origin);
   const values = data === undefined && state.project && !params.project
     ? {...params, project: state.project.path} : params;
@@ -48,6 +49,7 @@ async function api(route, params = {}, data) {
   };
   const response = await fetch(url, options);
   const result = await response.json();
+  if (viewVersion !== state.viewVersion) throw new DOMException("View changed", "AbortError");
   if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`);
   return result;
 }
@@ -57,7 +59,9 @@ async function post(route, values = {}) {
 }
 
 async function attempt(action) {
-  try { await action(); } catch (error) { toast(error.message || String(error), true); }
+  try { await action(); } catch (error) {
+    if (error.name !== "AbortError") toast(error.message || String(error), true);
+  }
 }
 
 function showDetails(title, value) {
@@ -71,7 +75,11 @@ function record(target, item, options = {}) {
   const head = node("div", "record-head");
   const title = node("strong", "record-title", options.title || item.summary || item.title || "Record");
   head.append(title);
-  if (options.badge || item.kind) head.append(node("span", "record-badge", labelState(options.badge || item.kind)));
+  if (options.badge || item.kind) {
+    const badge = node("span", "record-badge", labelState(options.badge || item.kind));
+    badge.dataset.state = options.badge || item.kind;
+    head.append(badge);
+  }
   row.append(head);
   if (options.description) row.append(node("p", "record-description", options.description));
   const meta = node("div", "record-meta");
@@ -110,7 +118,7 @@ async function loadProjects() {
   const picker = el("project-select");
   clear(picker);
   for (const project of state.projects) {
-    const parent = project.path.split("/").filter(Boolean).at(-2);
+    const parent = project.path.split(/[\\/]/).filter(Boolean).at(-2);
     const option = node("option", "", parent ? `${project.name} · ${parent}` : project.name);
     option.title = project.path;
     option.value = project.path;
@@ -134,6 +142,7 @@ async function loadProjects() {
 }
 
 function setPane(pane, load = true) {
+  state.viewVersion += 1;
   state.pane = pane;
   updateLocation({pane});
   for (const [name] of Object.entries(titles)) el(`pane-${name}`).hidden = name !== pane;
@@ -178,9 +187,9 @@ async function loadOverview() {
   const next = el("next-task"); clear(next);
   if (handoff.suggested_next_task) {
     const task = handoff.suggested_next_task;
-    next.append(node("h3", "", task.title), node("p", "", labelState(task.state)),
+    next.append(node("h3", "", task.title), node("span", "task-status", labelState(task.state)),
       node("p", "", task.next_step));
-    const button = node("button", "text-button", "Review task evidence →");
+    const button = node("button", "secondary-button", "Review task evidence");
     button.addEventListener("click", () => {state.taskId = task.id; setPane("tasks");});
     next.append(button);
   } else next.append(node("p", "muted", "No unfinished tasks are recorded."));
@@ -234,6 +243,7 @@ async function loadTasks() {
 }
 
 async function loadTask(id) {
+  state.viewVersion += 1;
   state.taskId = id;
   const review = await api("/api/task", {id});
   const target = el("task-detail"); clear(target);
@@ -262,6 +272,7 @@ async function loadTask(id) {
 }
 
 async function loadTimeline(reset = false) {
+  if (reset) state.viewVersion += 1;
   if (reset) {state.timelineOffset = 0; clear(el("timeline-list"));}
   const result = await api("/api/timeline", {offset: state.timelineOffset, kind: el("timeline-kind").value});
   const target = el("timeline-list");
@@ -329,6 +340,7 @@ function bind() {
   for (const button of document.querySelectorAll("[data-pane]")) button.addEventListener("click", () => setPane(button.dataset.pane));
   el("refresh-button").addEventListener("click", () => attempt(loadPane));
   el("project-select").addEventListener("change", () => attempt(async () => {
+    state.viewVersion += 1;
     state.project = state.projects.find((project) => project.path === el("project-select").value);
     state.taskId = null;
     updateLocation({project: state.project.path});
