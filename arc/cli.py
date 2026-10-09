@@ -95,7 +95,8 @@ def build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--task", dest="task_id")
     test = commands.add_parser("test", help="run the configured test command and save its result")
     test.add_argument("--task", dest="task_id")
-    commands.add_parser("index", help="embed pending records through local Ollama")
+    index = commands.add_parser("index", help="embed pending records through local Ollama")
+    index.add_argument('--limit', type=int, default=100)
     search = commands.add_parser("search", help="search local memory")
     search.add_argument("query")
     search.add_argument("--limit", type=int, default=5)
@@ -106,6 +107,10 @@ def build_parser() -> argparse.ArgumentParser:
     search_modes.add_argument("--hybrid", action="store_true")
     commands.add_parser("state", help="show evidence-backed project state")
     commands.add_parser("ai-status", help="check local Ollama models for search and chat")
+    commands.add_parser('database-info', help='identify the database used by this CLI')
+    model = commands.add_parser('model', help='load or unload a selected local model')
+    model.add_argument('operation', choices=['load', 'unload'])
+    model.add_argument('--role', choices=['embedding', 'chat'], required=True)
     handoff = commands.add_parser("handoff", help="show a compact evidence-linked handoff")
     handoff.add_argument("--limit", type=int, default=6,
                          help="maximum selected evidence items, 1–12")
@@ -245,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "test":
             result = service.run_test(project_path, args.task_id)
         elif args.command == "index":
-            result = service.index_memory(project_path)
+            result = service.index_memory(project_path, args.limit)
         elif args.command == "search":
             result = service.search_memory(project_path, args.query, args.limit,
                                            allow_keyword_fallback=not args.semantic_only,
@@ -253,6 +258,41 @@ def main(argv: list[str] | None = None) -> int:
                                            hybrid=args.hybrid)
         elif args.command == "state":
             result = service.project_state(project_path)
+        elif args.command == 'database-info':
+            import hashlib
+            result = {'database_id': hashlib.sha256(str(db_path).encode()).hexdigest()}
+        elif args.command == 'model':
+            from arc.model_gate import model_slot
+            from arc.chat import OllamaChat
+            from urllib.request import Request, build_opener, ProxyHandler
+            chat_model = OllamaChat().model
+            embedding_model = service.memory.embedder.model
+            selected = embedding_model if args.role == 'embedding' else chat_model
+            if not selected or ':cloud' in selected:
+                raise ValueError('Select an installed local model first')
+            with model_slot(service.store):
+                opener = build_opener(ProxyHandler({}))
+                # Free the other selected model before activation; use the same cross-process lease as indexing/chat.
+                other = chat_model if args.role == 'embedding' else embedding_model
+                loaded = set()
+                if args.operation == 'load':
+                    with opener.open('http://127.0.0.1:11434/api/ps', timeout=5) as response:
+                        loaded = {item.get('name') for item in json.load(response).get('models', [])}
+                if args.operation == 'load' and other and other != selected and (other in loaded or other + ':latest' in loaded):
+                    with opener.open(Request('http://127.0.0.1:11434/api/generate',
+                        data=json.dumps({'model': other, 'keep_alive': 0, 'stream': False}).encode(),
+                        headers={'Content-Type': 'application/json'}), timeout=20) as response:
+                        json.load(response)
+                body = {'model': selected, 'stream': False, 'keep_alive': '30s' if args.operation == 'load' else 0}
+                endpoint = 'generate'
+                if args.role == 'embedding' and args.operation == 'load':
+                    endpoint = 'embed'; body['input'] = 'Model readiness'
+                with opener.open(Request('http://127.0.0.1:11434/api/' + endpoint,
+                    data=json.dumps(body).encode(), headers={'Content-Type': 'application/json'}), timeout=60) as response:
+                    payload = json.load(response)
+                if payload.get('error'):
+                    raise ValueError('Model operation failed; check that the selected model supports this role')
+                result = {'model': selected, 'operation': args.operation, 'role': args.role}
         elif args.command == "ai-status":
             result = service.local_ai_status()
         elif args.command == "handoff":

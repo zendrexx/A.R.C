@@ -14,6 +14,29 @@ from arc.store import utc_now
 
 
 def _alive(pid) -> bool:
+    if os.name == 'nt':
+        # os.kill(pid, 0) terminates processes on Windows; query the handle instead.
+        import ctypes
+        from ctypes import wintypes
+        try:
+            pid = int(pid)
+            if pid <= 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        handle = kernel.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        try:
+            code = wintypes.DWORD()
+            return bool(kernel.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259
+        finally:
+            kernel.CloseHandle(handle)
     try:
         os.kill(int(pid), 0)
     except (OSError, TypeError, ValueError):
@@ -209,12 +232,12 @@ def watch(service, path: Path, interval: float = 5) -> None:
                     print(f'A.R.C. observer will retry: {error}', file=sys.stderr, flush=True)
                     time.sleep(max(1, interval))
                     continue
-                if time.monotonic() >= next_index:
-                    try:
-                        service.memory.index_pending(state['project_id'], limit=2)
-                    except EmbeddingUnavailable:
-                        pass
-                    next_index = time.monotonic() + 30
+            if time.monotonic() >= next_index:
+                try:
+                    service.memory.index_pending(state['project_id'], limit=2)
+                except (EmbeddingUnavailable, sqlite3.OperationalError, OSError):
+                    pass
+                next_index = time.monotonic() + 30
             time.sleep(max(1, interval))
     finally:
         db.execute('UPDATE observer_state SET worker_pid=NULL '

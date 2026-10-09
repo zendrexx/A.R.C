@@ -1,6 +1,7 @@
 """Local semantic retrieval from selected evidence summaries."""
 
 import json
+import os
 import math
 import re
 import unicodedata
@@ -31,18 +32,18 @@ class Embedder(Protocol):
 class OllamaEmbedder:
     """Calls only the local Ollama endpoint; no cloud fallback."""
 
-    def __init__(self, model: str = DEFAULT_MODEL, url: str = DEFAULT_OLLAMA_URL):
+    def __init__(self, model: str | None = None, url: str = DEFAULT_OLLAMA_URL):
         parsed = urlparse(url)
         if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
             raise ValueError("Ollama URL must point to the local computer")
-        self.model = model
+        self.model = model or os.environ.get('ARC_EMBEDDING_MODEL') or DEFAULT_MODEL
         self.url = url
         self._opener = build_opener(ProxyHandler({}))
 
     def embed(self, text: str) -> list[float]:
         request = Request(
             self.url,
-            data=json.dumps({"model": self.model, "input": text[:2000]}).encode(),
+            data=json.dumps({"model": self.model, "input": text[:2000], "keep_alive": "30s"}).encode(),
             headers={"Content-Type": "application/json"},
             method="POST",
         )

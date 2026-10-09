@@ -29,7 +29,8 @@ export class Backend {
   private disposed = false;
   private worker?: ChildProcess;
   observerError?: string;
-  constructor(readonly python: string, readonly project: string, readonly database: string) {}
+  constructor(readonly python: string, readonly project: string, readonly database: string,
+    readonly modelEnv: Record<string,string> = {}) {}
   request(args: string[]): Promise<any> {
     if (this.disposed) return Promise.reject(new Error('Project disconnected.'));
     const slot = args[0] === 'observer' ? 'control' : 'child';
@@ -42,7 +43,7 @@ export class Backend {
       let timedOut = false;
       const child = execFile(this.python, argv, {
         cwd: this.project, windowsHide: true, maxBuffer: 4 * 1024 * 1024,
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+        env: { ...process.env, ...this.modelEnv, PYTHONIOENCODING: 'utf-8' }
       }, (error, stdout, stderr) => {
         if (timer) clearTimeout(timer);
         this[slot] = undefined;
@@ -52,7 +53,7 @@ export class Backend {
         try { resolve(JSON.parse(stdout)); } catch { reject(new Error('Backend returned invalid JSON.')); }
       });
       this[slot] = child;
-      const timeout = args[0] === 'test' ? 150000 : args[0] === 'chat' ? 90000 : 60000;
+      const timeout = args[0] === 'test' ? 150000 : ['chat','model'].includes(args[0]) ? 90000 : 60000;
       timer = setTimeout(() => {timedOut = true; terminate(child);}, timeout);
     });
   }
@@ -63,7 +64,7 @@ export class Backend {
     args.push('observer-watch');
     this.observerError = undefined;
     const worker = spawn(this.python, args, {cwd: this.project, windowsHide: true,
-      stdio: ['ignore', 'ignore', 'pipe'], env: {...process.env, PYTHONIOENCODING: 'utf-8'}});
+      stdio: ['ignore', 'ignore', 'pipe'], env: {...process.env, ...this.modelEnv, PYTHONIOENCODING: 'utf-8'}});
     this.worker = worker;
     worker.stderr?.on('data', chunk => {this.observerError = readableError(String(chunk).slice(-2000));});
     worker.on('error', error => {this.observerError = error.message; if (this.worker === worker) this.worker = undefined;});
@@ -73,6 +74,15 @@ export class Backend {
     });
   }
   get observing(): boolean {return Boolean(this.worker);}
+  startDashboard(port: number): number | undefined {
+    const args = ['-m','arc.cli','--project',this.project];
+    if (this.database) args.push('--db',this.database);
+    args.push('dashboard','--no-browser','--port',String(port));
+    const child = spawn(this.python,args,{cwd:this.project,detached:true,windowsHide:true,stdio:'ignore',
+      env:{...process.env,...this.modelEnv,PYTHONIOENCODING:'utf-8'}});
+    child.on('error',()=>{}); child.unref();
+    return child.pid;
+  }
   get busy(): boolean {return Boolean(this.child || this.control);}
   stopObserver(): void {terminate(this.worker); this.worker = undefined;}
   dispose(): void { this.disposed = true; terminate(this.child); terminate(this.control); this.stopObserver(); }

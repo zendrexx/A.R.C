@@ -614,17 +614,18 @@ class ArcService:
                        "Claims and attempts do not prove completion or resolution."],
         }
 
-    def index_memory(self, path: Path) -> dict:
-        return self.memory.index_pending(self._project(path)["id"])
+    def index_memory(self, path: Path, limit: int = 100) -> dict:
+        return self.memory.index_pending(self._project(path)["id"], limit=min(max(limit, 1), 100))
 
     def local_ai_status(self) -> dict:
         from arc.chat import OllamaChat
         model = self.memory.embedder.model
         try:
-            vector = self.memory.embedder.embed("A.R.C. local AI status")
-            status = {"status": "ready", "model": model,
-                      "vector_dimensions": len(vector), "local_only": True}
-        except EmbeddingUnavailable as error:
+            installed = OllamaChat().models()
+            ready = model in installed or model + ':latest' in installed
+            status = {"status": "ready" if ready else "unavailable", "model": model,
+                      "local_only": True}
+        except (OSError, ValueError, KeyError) as error:
             status = {"status": "unavailable", "model": model,
                       "reason": str(error), "local_only": True}
         status["chat"] = OllamaChat().probe()

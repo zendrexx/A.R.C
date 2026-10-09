@@ -1,6 +1,7 @@
 """Small loopback dashboard over the same project-scoped service used by CLI and MCP."""
 
 import json
+import hashlib
 import secrets
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -59,6 +60,8 @@ def create_dashboard_server(db_path: Path, port: int = 8765) -> ThreadingHTTPSer
             return Path(value)
 
         def _api_get(self, service: ArcService, route: str, query: dict[str, str]):
+            if route == '/api/health':
+                return {'service': 'arc-dashboard', 'database_id': hashlib.sha256(str(database).encode()).hexdigest()}
             if route == "/api/projects":
                 return service.list_projects()
             if route == "/api/ai-status":

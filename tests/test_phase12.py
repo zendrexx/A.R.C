@@ -98,7 +98,18 @@ def test_chat_citations_are_real_and_claims_remain_unverified(service, sample_re
     assert service.get_event(sample_repo, result['citations'][0]['id'])['id'] == event['id']
 
 
-def test_chat_requires_local_ollama(monkeypatch, service, sample_repo):
+def test_ai_health_check_does_not_load_models(monkeypatch, service):
+    from arc.chat import OllamaChat
+    monkeypatch.setattr(OllamaChat, 'models', lambda _: {'all-minilm:latest', 'qwen3:1.7b'})
+    def forbidden(_):
+        raise AssertionError('A health check must not embed text or load a model')
+    monkeypatch.setattr(service.memory.embedder, 'embed', forbidden)
+    result = service.local_ai_status()
+    assert result['status'] == 'ready'
+    assert result['chat']['status'] == 'ready'
+
+
+def test_chat_remains_available_without_local_ollama(monkeypatch, service, sample_repo):
     from urllib.error import URLError
     from arc.memory import EmbeddingUnavailable
     service.record_note(sample_repo, 'note', 'offline fact')
@@ -116,11 +127,11 @@ def test_chat_requires_local_ollama(monkeypatch, service, sample_repo):
                 def read(self): return json.dumps(payload).encode()
             return Response()
     monkeypatch.setattr('arc.chat.build_opener', lambda *_: Tags(error=URLError('refused')))
-    with pytest.raises(EmbeddingUnavailable, match='requires Ollama'):
-        answer(service, sample_repo, 'Where did we leave off?')
+    result = answer(service, sample_repo, 'Where did we leave off?')
+    assert result['citations'][0]['summary'] == 'offline fact'
     monkeypatch.setattr('arc.chat.build_opener', lambda *_: Tags({'models': []}))
-    with pytest.raises(EmbeddingUnavailable, match='ollama pull qwen3'):
-        answer(service, sample_repo, 'Where did we leave off?')
+    result = answer(service, sample_repo, 'Where did we leave off?')
+    assert result['citations'][0]['summary'] == 'offline fact'
     monkeypatch.setattr('arc.chat.build_opener',
                         lambda *_: Tags({'models': [{'name': 'qwen3:1.7b'}]}))
     result = answer(service, sample_repo, 'Where did we leave off?')

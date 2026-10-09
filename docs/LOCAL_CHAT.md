@@ -1,13 +1,15 @@
 # Local chat in VS Code
 
-Install Ollama from https://ollama.com/download/windows, then run:
+Install Ollama once from https://ollama.com/download/windows, then connect your
+project in A.R.C. The extension starts installed Ollama in the background if
+needed and asks once before downloading `all-minilm` for semantic memory and
+`qwen3:1.7b` for conversational answers. Normal use needs no Terminal commands.
+Automatic observation remains a separate initial opt-in. Approved projects
+reconnect on the next VS Code startup and pending records are indexed automatically.
 
-```powershell
-ollama pull qwen3:1.7b
-ollama pull all-minilm
-```
-
-Keep Ollama running. A.R.C. uses its local API at `127.0.0.1:11434`.
+Set `arc.ollama.autoStart` to false to disable background startup. Use **A.R.C.:
+Retry Local AI Setup** to reconsider a model download decision. A.R.C. reuses
+existing servers and never terminates them. It uses the API at `127.0.0.1:11434`.
 The chat model writes conversational answers from retrieved project records;
 source cards let you inspect the supporting evidence. Model answers can be
 incorrect, so inspect the records when accuracy matters. If Ollama is unavailable,

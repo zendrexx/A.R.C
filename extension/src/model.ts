@@ -1,4 +1,4 @@
-export interface Row { label: string; description?: string; children?: Row[]; eventId?: string; path?: string; payload?: unknown }
+export interface Row { label: string; description?: string; children?: Row[]; eventId?: string; path?: string; payload?: unknown; command?: string; icon?: string }
 export function memoryRows(state: any): Row[] {
   const events = (state.recent_events ?? []).map((e: any) => ({
     label: e.summary, description: `${e.kind} · ${new Date(e.created_at).toLocaleString()}`,
@@ -17,12 +17,13 @@ export function memoryRows(state: any): Row[] {
       { label: state.active_session ? `Session: ${state.active_session.label}` : 'No active session' },
       { label: `Collection: ${state.observer?.enabled ? state.observer.paused ? 'paused' : state.observer.running ? 'observing' : 'worker stopped' : 'disabled'}` },
       { label: `Index: ${state.index?.indexed_records ?? 0} indexed · ${state.index?.pending_records ?? 0} pending` },
-      { label: 'Local chat: cited evidence · optional qwen3:1.7b source selection' },
+      { label: 'Local chat: recorded evidence with your selected model' },
       ...(state.observer?.error ? [{label: 'Observer error', description: state.observer.error}] : [])
     ]},
     { label: 'Tasks & verification', description: String(tasks.length), children: tasks.length ? tasks : [{label: 'No tasks recorded'}] },
     { label: 'Git changes', description: String(state.git.changed_paths.length), children: state.git.changed_paths.length ? state.git.changed_paths.map((path: string) => ({label: path, path})) : [{label: 'Working tree clean'}] },
     { label: 'Recent activity', description: 'Latest 8 records', children: events.length ? events : [{label: 'No activity recorded'}] },
-    { label: 'Latest checkpoint', children: state.latest_checkpoint ? [{label: state.latest_checkpoint.id, description: state.latest_checkpoint.stale ? 'Stale · candidate unconfirmed' : 'Candidate unconfirmed', payload: state.latest_checkpoint}] : [{label: 'No checkpoint recorded'}] }
+    { label: 'Latest checkpoint', children: state.latest_checkpoint ? [{label: state.latest_checkpoint.id, description: state.latest_checkpoint.stale ? 'Stale · candidate unconfirmed' : 'Candidate unconfirmed', payload: state.latest_checkpoint}] : [{label: 'No checkpoint recorded'}] },
+    ...(state.handoff ? [{label: 'Session handoff', payload: state.handoff}] : [])
   ];
 }
