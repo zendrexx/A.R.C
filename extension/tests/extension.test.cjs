@@ -83,7 +83,7 @@ test('chat offers actions before connecting and executes only allowlisted comman
   chat.send({action:'ask',question:'Can you create a project?',offset:0,timezoneOffset:480,requestId:1});
   await tick();
   assert.equal(app.instances.length, 0);
-  assert.equal(app.messages[0].result.actions[0].command, 'arc.createProject');
+  assert.equal(app.messages.find(m => m.requestId === 1).result.actions[0].command, 'arc.createProject');
   chat.send({action:'command',command:'arc.createProject'});
   await tick();
   assert.equal(calls.length, 1);
@@ -224,5 +224,11 @@ test('chat cards show newest evidence first with separate date, 12-hour time and
   assert.equal(elements.get('answer').textContent,'Recorded evidence');
   cards[0].listeners.click();
   assert.equal(posted[0].id,'new-id');
+  receive({data:{requestId:0,result:{answer_intro:'Could you clarify what you want to find?',citations:[],
+    notice:"Local Ollama embedding failed: <urlopen error [WinError 10061] connection refused>. Start Ollama and run ollama pull all-minilm."}}});
+  assert.equal(elements.get('answer').textContent,'Could you clarify what you want to find?');
+  receive({data:{requestId:0,result:{answer_intro:'Recorded evidence',citations:[newer],notice:'urlopen error [WinError 10061]'}}});
+  assert.match(elements.get('answer').textContent,/AI assistance is currently unavailable/);
+  assert.doesNotMatch(elements.get('answer').textContent,/urlopen|WinError|10061/);
   app.dispose();
 });

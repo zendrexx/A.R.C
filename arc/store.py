@@ -324,12 +324,8 @@ class Store:
     def timeline(self, project_id: str, limit: int = 20, offset: int = 0,
                  kind: str | None = None, since: str | None = None,
                  until: str | None = None, snapshot_rowid: int | None = None,
-<<<<<<< HEAD
-                 oldest_first: bool = False) -> dict:
-=======
                  task_id: str | None = None,
-                 kinds: tuple[str, ...] | None = None) -> dict:
->>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
+                 kinds: tuple[str, ...] | None = None, oldest_first: bool = False) -> dict:
         def utc(value):
             if not value:
                 return None
@@ -346,14 +342,6 @@ class Store:
         if snapshot_rowid is None:
             snapshot_rowid = self.connection.execute('SELECT COALESCE(MAX(rowid),0) FROM events WHERE project_id=?', (project_id,)).fetchone()[0]
         snapshot_rowid = max(0, snapshot_rowid)
-<<<<<<< HEAD
-        clauses = 'project_id=? AND rowid<=? AND (? IS NULL OR kind=?) AND (? IS NULL OR created_at>=?) AND (? IS NULL OR created_at<?)'
-        args = (project_id, snapshot_rowid, kind, kind, since, since, until, until)
-        total = self.connection.execute('SELECT COUNT(*) FROM events WHERE ' + clauses, args).fetchone()[0]
-        direction = 'ASC' if oldest_first else 'DESC'
-        rows = self.connection.execute('SELECT * FROM events WHERE ' + clauses +
-            f' ORDER BY created_at {direction}, rowid {direction} LIMIT ? OFFSET ?', (*args, limit, offset))
-=======
         clauses = ['project_id=?', 'rowid<=?']
         args: list = [project_id, snapshot_rowid]
         if kind:
@@ -375,9 +363,9 @@ class Store:
             args.append(until)
         where = ' AND '.join(clauses)
         total = self.connection.execute('SELECT COUNT(*) FROM events WHERE ' + where, args).fetchone()[0]
+        direction = 'ASC' if oldest_first else 'DESC'
         rows = self.connection.execute('SELECT * FROM events WHERE ' + where +
-            ' ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?', (*args, limit, offset))
->>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
+            f' ORDER BY created_at {direction}, rowid {direction} LIMIT ? OFFSET ?', (*args, limit, offset))
         events = [self._event(row) for row in rows]
         return {'events': events, 'total_events': total, 'snapshot_rowid': snapshot_rowid,
                 'next_offset': offset + len(events) if offset + len(events) < total else None}

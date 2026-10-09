@@ -16,7 +16,6 @@ RATIONALE_WORDS = re.compile(r'\bbecause\b|\breason\b|\brationale\b', re.I)
 class OllamaChat:
     model = 'qwen3:1.7b'
 
-<<<<<<< HEAD
     def respond(self, question, events):
         evidence = [{k: e[k] for k in ('id', 'kind', 'created_at', 'summary')} for e in events[:12]]
         request = Request('http://127.0.0.1:11434/api/chat', method='POST',
@@ -44,7 +43,7 @@ class OllamaChat:
         if not ids:
             raise ValueError('Model answer has no supporting citations')
         return text, ids
-=======
+
     def installed(self) -> bool:
         request = Request('http://127.0.0.1:11434/api/tags')
         with build_opener(ProxyHandler({})).open(request, timeout=5) as response:
@@ -72,7 +71,6 @@ class OllamaChat:
             return {'status': 'ready', 'model': self.model}
         return {'status': 'unavailable', 'model': self.model,
                 'reason': f"Run 'ollama pull {self.model}' to enable local chat."}
->>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
 
     def select(self, question: str, events: list[dict]) -> list[str]:
         def clip(text, size):
@@ -135,7 +133,8 @@ def calendar_bounds(question: str, offset_minutes: int = 0, now=None):
 def _question_bounds(question: str, offset_minutes: int, now=None):
     relative = calendar_bounds(question, offset_minutes, now)
     if relative[0]:
-        word = re.search(r'\b(today|yesterday)\b', question, re.I)[1].lower()
+        match = re.search(r'\b(today|yesterday)\b', question, re.I)
+        word = match[1].lower() if match else 'today'
         local_day = datetime.fromisoformat(relative[0]).astimezone(
             timezone(timedelta(minutes=offset_minutes))).date()
         return *relative, f'{word.capitalize()} ({local_day.isoformat()})'
@@ -244,43 +243,8 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
     project = service._project(path)
     if not keyword_only and chat is None:
         chat = OllamaChat()
-        chat.require()
     since, until, period = _question_bounds(question, offset_minutes, now)
     rationale = bool(re.search(r'\bwhy\b', question, re.I))
-<<<<<<< HEAD
-    fix_question = bool(re.search(r'errors?.*fix|fix.*errors?', question, re.I))
-    latest = bool(re.search(r'\b(most recent|latest|last change)\b', question, re.I))
-    oldest = bool(re.search(r'\b(oldest|earliest|first change|first commit)\b', question, re.I))
-    single = latest or oldest
-    changes = bool(re.search(r'\b(changes?|changed|commits?)\b', question, re.I))
-    broad = bool(single or changes or since or fix_question or re.search(r'timeline|leave off|what happened|summarize|summary|what changed', question, re.I))
-    if broad:
-        page = service.store.timeline(project['id'], 1 if single else 12, 0 if single else max(0, offset), kind='git' if changes else None, since=since, until=until,
-                                      snapshot_rowid=snapshot_rowid, oldest_first=oldest)
-        snapshot_rowid = page['snapshot_rowid']
-        events = page['events']
-        next_offset = None if single else page['next_offset']
-        retrieval = 'timeline'
-    else:
-        found = service.search_memory(path, question, 12, keyword_only=keyword_only)
-        events = [service.get_event(path, hit['event_id']) for hit in found['hits']]
-        next_offset = None
-        retrieval = found['mode']
-    if rationale:
-        events = [e for e in events if e['kind'] == 'decision' or e['details'].get('commit_message')
-                  or (e['kind'] in {'note', 'error', 'attempt'} and re.search(r'\bbecause\b|\breason\b|\brationale\b', e['summary'], re.I))]
-    mode = 'evidence'
-    notice = None
-    model_answer = None
-    if events and not keyword_only:
-        try:
-            with model_slot(service.store):
-                model = chat or OllamaChat()
-                if hasattr(model, 'respond'):
-                    model_answer, ids = model.respond(question, events)
-                else:
-                    ids = model.select(question, events)
-=======
     fix_question = (bool(re.search(r'\b(error|errors|bug|bugs|failure|failures|issue|issues)\b', question, re.I))
                     and bool(re.search(r'\b(fix|fixed|resolve|resolved|resolution|repair|repaired)\b', question, re.I)))
     error_question = bool(re.search(r'\b(errors?|failures?|bugs?)\b', question, re.I))
@@ -288,7 +252,12 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
     task = _task_for_question(tasks, question) if not rationale else None
     handoff = bool(re.search(r'leave off|unfinished|what(?:\s+should\s+we)?\s+do next|next task', question, re.I))
     broad = bool(re.search(r'timeline|what happened|summari[sz]e|summary|what changed', question, re.I))
+    oldest = bool(re.search(r'\b(oldest|earliest|first change|first commit)\b', question, re.I))
+    latest = bool(re.search(r'\b(most recent|latest|last change)\b', question, re.I))
+    single = oldest or latest
+    changes = bool(re.search(r'\b(changes?|changed|commits?)\b', question, re.I))
     mode = 'evidence'
+    model_answer = None
     notice = None
     page = None
     groups = []
@@ -296,7 +265,12 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
     overview = None
     day_counts = None
     use_model = False
-    if fix_question:
+    if single:
+        page = service.store.timeline(project['id'], 1, 0, kind='git' if changes else None,
+            since=since, until=until, snapshot_rowid=snapshot_rowid, oldest_first=oldest)
+        events = page['events']
+        retrieval = 'timeline'
+    elif fix_question:
         page = service.store.timeline(project['id'], 4, offset, kind='resolution',
                                       since=since, until=until,
                                       snapshot_rowid=snapshot_rowid)
@@ -360,9 +334,9 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
         events = _unique([*selected, *recent])
         retrieval = 'handoff'
         use_model = True
-    elif since or until or broad or error_question:
+    elif since or until or broad or error_question or changes:
         page = service.store.timeline(project['id'], PAGE_SIZE, offset,
-                                      kind='error' if error_question else None,
+                                      kind='error' if error_question else 'git' if changes else None,
                                       since=since, until=until,
                                       snapshot_rowid=snapshot_rowid)
         events = page['events']
@@ -378,22 +352,20 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
     if events and use_model and not keyword_only:
         try:
             with model_slot(service.store):
-                ids = chat.select(question, events)
->>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
+                if hasattr(chat, 'respond'):
+                    model_answer, ids = chat.respond(question, events)
+                else:
+                    ids = chat.select(question, events)
             events = [e for e in events if e['id'] in ids]
             mode = 'local_model_answer' if model_answer else 'local_model_selection'
         except (EmbeddingUnavailable, URLError, TimeoutError, OSError, ValueError, KeyError, TypeError) as error:
             notice = f'Local source selection unavailable; showing recorded evidence. {error}'
-    next_offset = page['next_offset'] if page else None
+    next_offset = page['next_offset'] if page and not single else None
     if page:
         snapshot_rowid = page['snapshot_rowid']
     fingerprint = service.project_state(path)['git']['fingerprint']
     lines = []
     if not events:
-<<<<<<< HEAD
-        text = 'No recorded rationale supports this answer.' if rationale else 'No matching recorded evidence supports this answer.'
-        intro = text
-=======
         if review:
             state = review['current_state']
             text = (f"Task {state['title']} ({state['id']}) currently has evidence state "
@@ -413,16 +385,8 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
             text = f'No recorded activity for {period}.'
         else:
             text = 'No matching recorded evidence supports this answer.'
->>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
     else:
         if fix_question:
-<<<<<<< HEAD
-            lines.append('These records alone do not verify which error a change fixed. Review the associated checks and snapshots.')
-        intro = '\n'.join(lines)
-        for e in reversed(events):
-            label = 'Unverified claim' if e['kind'] == 'claim' else e['kind']
-            lines.append(f"[{e['id']}] {e['created_at']} · {label}: {e['summary']}")
-=======
             if groups:
                 lines.append('Reported error resolutions; a report and linked test do not prove the error is fixed.')
                 for group in groups:
@@ -468,22 +432,14 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
                 lines.append('Recorded project evidence:')
             ordered = list(reversed(events)) if page else events
             lines.extend(_line(event, fingerprint, offset_minutes) for event in ordered)
->>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
         text = '\n'.join(lines)
         if model_answer:
             intro = model_answer
     if next_offset is not None:
-<<<<<<< HEAD
-        text += '\nMore history is available; continue with the returned next_offset.'
-        intro += '\nMore recorded history is available below.'
-    return {'answer': text, 'answer_intro': intro, 'mode': mode, 'retrieval_mode': retrieval,
-            'citations': [{**{k: e[k] for k in ('id', 'source_ref', 'created_at', 'summary', 'kind')},
-                           'changed_paths': e['details'].get('changed_paths', [])} for e in events],
-=======
         text += '\nMore history is available; continue with next_offset and snapshot_rowid.'
-    return {'answer': text, 'mode': mode, 'retrieval_mode': retrieval,
-            'citations': [{k: e[k] for k in ('id', 'source_ref', 'created_at', 'summary')} for e in events],
->>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
+    return {'answer': text, 'answer_intro': model_answer or '\n'.join(line for line in text.splitlines() if not line.startswith('[')), 'mode': mode, 'retrieval_mode': retrieval,
+            'citations': [{**{k: e[k] for k in ('id', 'source_ref', 'created_at', 'summary', 'kind')},
+                'changed_paths': e['details'].get('changed_paths', [])} for e in events],
             'next_offset': next_offset, 'snapshot_rowid': snapshot_rowid,
             'since': since, 'until': until, 'notice': notice,
             'total_events': page['total_events'] if page else None,

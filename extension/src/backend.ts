@@ -1,6 +1,16 @@
 import { execFile, spawn, ChildProcess } from 'node:child_process';
 import * as path from 'node:path';
 
+function readableError(message: string): string {
+  if (/Ollama|urlopen error|WinError 10061|ECONNREFUSED/i.test(message)) {
+    return 'AI assistance is currently unavailable. Please try again later.';
+  }
+  if (/Traceback \(most recent call last\)|SyntaxError:|<frozen runpy>/i.test(message)) {
+    return 'A.R.C. could not process your message because its backend encountered an error. Please try again after the backend is fixed.';
+  }
+  return message;
+}
+
 /** Windows venv launchers can have a second Python process holding the database. */
 function terminate(child?: ChildProcess): void {
   if (!child) return;
@@ -38,7 +48,7 @@ export class Backend {
         this[slot] = undefined;
         if (this.disposed) { reject(new Error('Project disconnected.')); return; }
         if (timedOut) {reject(new Error('A.R.C. request timed out. Recorded evidence remains in SQLite.'));return;}
-        if (error) { reject(new Error(stderr.trim() || error.message)); return; }
+        if (error) { reject(new Error(readableError(stderr.trim() || error.message))); return; }
         try { resolve(JSON.parse(stdout)); } catch { reject(new Error('Backend returned invalid JSON.')); }
       });
       this[slot] = child;
@@ -55,7 +65,7 @@ export class Backend {
     const worker = spawn(this.python, args, {cwd: this.project, windowsHide: true,
       stdio: ['ignore', 'ignore', 'pipe'], env: {...process.env, PYTHONIOENCODING: 'utf-8'}});
     this.worker = worker;
-    worker.stderr?.on('data', chunk => {this.observerError = String(chunk).slice(-2000);});
+    worker.stderr?.on('data', chunk => {this.observerError = readableError(String(chunk).slice(-2000));});
     worker.on('error', error => {this.observerError = error.message; if (this.worker === worker) this.worker = undefined;});
     worker.on('exit', code => {
       if (this.worker === worker) this.worker = undefined;

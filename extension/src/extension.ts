@@ -273,7 +273,6 @@ export function activate(context: vscode.ExtensionContext) {
       view.webview.options = {enableScripts: true, localResourceRoots: []};
       view.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><style nonce="${nonce}">
         body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);padding:16px;line-height:1.5} h1{font-size:21px;margin:8px 0} .muted{color:var(--vscode-descriptionForeground)} .card{border:1px solid var(--vscode-widget-border);border-radius:8px;padding:14px;margin:18px 0} button{width:100%;padding:9px;margin:5px 0;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:0;cursor:pointer} button:hover{background:var(--vscode-button-hoverBackground)} button:focus-visible{outline:2px solid var(--vscode-focusBorder)} textarea{box-sizing:border-box;width:100%;padding:9px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border)}
-<<<<<<< HEAD
       </style></head><body><p class="muted">A.R.C. / LOCAL MEMORY</p><h1>Pick up where you left off.</h1><p>Find the evidence behind your project's progress.</p><div class="card"><label for="question">Ask about your project</label><textarea id="question" rows="3" maxlength="2000" placeholder="Ask about changes, or type Enable observation"></textarea><button id="ask">Ask A.R.C.</button><button id="more" hidden>Load older history</button><p id="answer" role="status" aria-live="polite" style="white-space:pre-wrap"></p><div id="sources"></div></div><button id="search">Search memory</button><button id="connect">Connect project</button><p class="muted">Local Ollama answers from recorded evidence. Action requests offer buttons. Commands are also available through Ctrl+Shift+P.</p><script nonce="${nonce}">
       const vscode=acquireVsCodeApi(); let offset=0; let snapshot; let question=''; let requestId=0;
       const sourceStyle=document.createElement('style');sourceStyle.setAttribute('nonce','${nonce}');sourceStyle.textContent='#sources{display:flex;flex-direction:column;gap:14px;margin-top:18px}.source-card{display:flex;flex-direction:column;align-items:stretch;gap:8px;text-align:left;width:100%;margin:0;padding:16px;border:1px solid var(--vscode-widget-border,var(--vscode-input-border));border-radius:8px;background:var(--vscode-editor-background);color:var(--vscode-foreground);line-height:1.5;overflow-wrap:anywhere}.source-card:hover{background:var(--vscode-list-hoverBackground)}.source-date{font-weight:600}.source-time{color:var(--vscode-descriptionForeground)}.source-details{display:flex;flex-direction:column;gap:6px;margin:4px 0}.source-kind{font-weight:600}.source-action{color:var(--vscode-textLink-foreground);font-size:12px;margin-top:6px}';document.head.appendChild(sourceStyle);
@@ -296,28 +295,22 @@ export function activate(context: vscode.ExtensionContext) {
           card.addEventListener('click',()=>vscode.postMessage({action:'event',id:source.id}));container.appendChild(card);
         }
       }
-=======
-      </style></head><body><p class="muted">A.R.C. / LOCAL MEMORY</p><h1>Pick up where you left off.</h1><p>Find the evidence behind your project's progress.</p><div class="card"><label for="question">Ask about your project</label><textarea id="question" rows="3" maxlength="2000" placeholder="What did we work on yesterday?"></textarea><button id="ask">Ask A.R.C.</button><p id="ai" class="muted" role="status"></p><button id="more" hidden>Load older history</button><p id="answer" role="status" aria-live="polite" style="white-space:pre-wrap"></p><div id="sources"></div></div><button id="search">Search memory</button><button id="connect">Connect project</button><p class="muted">Answers quote recorded evidence. Claims remain unverified; local Ollama optionally selects sources.</p><script nonce="${nonce}">
-      const vscode=acquireVsCodeApi(); let offset=0; let snapshot; let question=''; let requestId=0; let aiReady=false;
->>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
       for(const action of ['search','connect'])document.getElementById(action).addEventListener('click',()=>vscode.postMessage({action}));
-      function ask(next){question=next?question:document.getElementById('question').value.trim();if(!question)return;if(!aiReady){document.getElementById('answer').textContent=document.getElementById('ai').textContent||'Connect a project and start Ollama to use local chat.';return;}offset=next?offset:0;snapshot=next?snapshot:undefined;requestId++;document.getElementById('ask').disabled=true;document.getElementById('more').hidden=true;document.getElementById('answer').textContent='Reading local evidence…';document.getElementById('sources').replaceChildren();vscode.postMessage({action:'ask',question,offset,snapshot,requestId,timezoneOffset:-new Date().getTimezoneOffset()});}
+      function ask(next){question=next?question:document.getElementById('question').value.trim();if(!question)return;offset=next?offset:0;snapshot=next?snapshot:undefined;requestId++;document.getElementById('ask').disabled=true;document.getElementById('more').hidden=true;document.getElementById('answer').textContent='Reading local evidence…';document.getElementById('sources').replaceChildren();vscode.postMessage({action:'ask',question,offset,snapshot,requestId,timezoneOffset:-new Date().getTimezoneOffset()});}
       document.getElementById('ask').addEventListener('click',()=>ask(false)); document.getElementById('more').addEventListener('click',()=>ask(true));
-<<<<<<< HEAD
       window.addEventListener('message',({data})=>{
         if(data.action==='reset'){requestId++;document.getElementById('ask').disabled=false;document.getElementById('answer').textContent='Connect a project to ask about its evidence.';document.getElementById('sources').replaceChildren();document.getElementById('more').hidden=true;return;}
+        if(data.action==='ai')return;
         if(data.requestId!==requestId)return;
         document.getElementById('ask').disabled=false;
         const result=data.result;const citations=result?.citations||[];
         const intro=result?.answer_intro||(citations.length?String(result.answer).split('\\n').filter(line=>!/^\\[[^\\]]+\\]/.test(line)).join('\\n'):result?.answer);
-        document.getElementById('answer').textContent=data.error||[intro,result?.notice].filter(Boolean).join('\\n\\n');
+        const notice=citations.length&&result?.notice?'Showing recorded evidence; AI assistance is currently unavailable.':undefined;
+        document.getElementById('answer').textContent=data.error||[intro,notice].filter(Boolean).join('\\n\\n');
         renderSources(citations);
         for(const action of result?.actions||[]){const button=document.createElement('button');button.textContent=action.label;button.addEventListener('click',()=>{button.disabled=true;vscode.postMessage({action:'command',command:action.command});});document.getElementById('sources').appendChild(button);}
         offset=result?.next_offset;snapshot=result?.snapshot_rowid;document.getElementById('more').hidden=offset==null;
       });
-=======
-      window.addEventListener('message',({data})=>{if(data.action==='reset'){requestId++;aiReady=false;document.getElementById('ask').disabled=true;document.getElementById('ai').textContent='';document.getElementById('answer').textContent='Connect a project to ask about its evidence.';document.getElementById('sources').replaceChildren();document.getElementById('more').hidden=true;return;}if(data.action==='ai'){aiReady=data.ready===true;document.getElementById('ask').disabled=!aiReady;document.getElementById('ai').textContent=aiReady?'Local model ready: '+(data.model||'qwen3:1.7b'):(data.reason?'Local model required — '+data.reason:'Connect a project to check the local model.');return;}if(data.requestId!==requestId)return;document.getElementById('ask').disabled=!aiReady;document.getElementById('answer').textContent=data.error||data.result.answer;const sources=document.getElementById('sources');sources.replaceChildren();for(const source of data.result?.citations||[]){const b=document.createElement('button');b.textContent='Inspect '+source.id.slice(0,8)+' · '+source.summary;b.addEventListener('click',()=>vscode.postMessage({action:'event',id:source.id}));sources.appendChild(b);}offset=data.result?.next_offset;snapshot=data.result?.snapshot_rowid;document.getElementById('more').hidden=offset==null;});
->>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
       </script></body></html>`;
       void pushAiStatus();
       const listener = view.webview.onDidReceiveMessage(message => {
@@ -328,6 +321,13 @@ export function activate(context: vscode.ExtensionContext) {
           const current = backend; const token = generation;
           void (async () => {
             try {
+              if (/^(?:hi|hello|hey|thanks|thank you)[.!\s]*$/i.test(message.question.trim()) || /^i\s+(?:need|have|want)\s+to\s+(?:shit|poop|pee|use the bathroom|go to the bathroom)[.!\s]*$/i.test(message.question.trim())) {
+                await view.webview.postMessage({requestId: message.requestId, result: {
+                  answer_intro: /^i\s/i.test(message.question.trim()) ? 'That seems unrelated to this project. Could you clarify what you want to find in your project’s recorded history?' : 'Hi! What would you like to find in your project’s recorded history?',
+                  citations: [], next_offset: null
+                }});
+                return;
+              }
               const actions = /\b(don't|do not|never)\b/i.test(message.question) ? [] : chatActions.filter(action => action.pattern.test(message.question));
               if (actions.length === 1 && actions[0].command === 'arc.observe' && !/\b(how|why|what happens)\b/i.test(message.question)) {
                 if (!current) throw new Error('Connect a project first.');
@@ -346,6 +346,10 @@ export function activate(context: vscode.ExtensionContext) {
               const args = ['chat', message.question, '--timezone-offset', String(message.timezoneOffset), '--offset', String(message.offset)];
               if (message.snapshot !== undefined) args.push('--snapshot', String(message.snapshot));
               const result = await current.request(args);
+              if (!result.citations?.length && /^No matching recorded evidence supports this answer\.$/.test(result.answer)) {
+                result.answer_intro = 'I couldn’t find project records matching that message. Could you clarify what change, task, or time period you want to find?';
+                result.notice = undefined;
+              }
               if (token === generation) await view.webview.postMessage({requestId: message.requestId, result});
             } catch (error) {if (token === generation) await view.webview.postMessage({requestId: message.requestId, error: String(error instanceof Error ? error.message : error)});}
           })();
