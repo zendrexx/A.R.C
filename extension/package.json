@@ -12,6 +12,8 @@
     "views": {"arc": [{"id": "arc.memory", "name": "Memory"}, {"id": "arc.chat", "name": "Chat", "type": "webview"}]},
     "commands": [
       {"command": "arc.connect", "title": "A.R.C.: Connect Project"},
+      {"command": "arc.create", "title": "A.R.C.: Create Project"},
+      {"command": "arc.delete", "title": "A.R.C.: Delete Project Memory"},
       {"command": "arc.refresh", "title": "A.R.C.: Refresh Memory", "icon": "$(refresh)"},
       {"command": "arc.search", "title": "A.R.C.: Search Memory", "icon": "$(search)"},
       {"command": "arc.capture", "title": "A.R.C.: Capture Git Evidence"},
@@ -26,7 +28,7 @@
       {"command": "arc.test", "title": "A.R.C.: Run Configured Test"}
     ],
     "menus": {"view/title": [{"command": "arc.refresh", "when": "view == arc.memory", "group": "navigation"}, {"command": "arc.search", "when": "view == arc.memory", "group": "navigation"}]},
-    "viewsWelcome": [{"view": "arc.memory", "contents": "Keep your project context close.\n[Connect a project](command:arc.connect)\nSelect a trusted local workspace to inspect recorded evidence."}],
+    "viewsWelcome": [{"view": "arc.memory", "contents": "Keep your project context close.\n[Connect a project](command:arc.connect)\n[Create a project](command:arc.create)\nSelect a trusted local workspace to inspect recorded evidence."}],
     "configuration": {"title": "A.R.C.", "properties": {
       "arc.pythonPath": {"type": "string", "default": "", "description": "Python executable with arc-memory installed. Empty uses the project's .venv, then python3 (macOS/Linux) or python (Windows).", "scope": "machine"},
       "arc.databasePath": {"type": "string", "default": "", "description": "Absolute SQLite path shared with CLI/MCP. Empty uses ARC_DB or the backend's default database.", "scope": "machine"}

@@ -17,9 +17,12 @@ GENERATED_DIRS = {'.git', '.arc', '.venv', 'node_modules', '__pycache__',
 
 
 def _git(root: Path, *args: str, check: bool = True) -> bytes:
-    result = subprocess.run(
-        ["git", "-C", str(root), *args], capture_output=True, check=False, timeout=20
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args], capture_output=True, check=False, timeout=20
+        )
+    except FileNotFoundError:
+        raise ValueError("Git executable not found on PATH") from None
     if check and result.returncode != 0:
         raise ValueError(result.stderr.decode("utf-8", "replace").strip() or "Git failed")
     return result.stdout if result.returncode == 0 else b""
@@ -33,10 +36,13 @@ def _visible(path: str) -> bool:
 
 
 def is_ancestor(root: Path, older: str, newer: str) -> bool:
-    result = subprocess.run(
-        ["git", "-C", str(root), "merge-base", "--is-ancestor", older, newer],
-        capture_output=True, check=False, timeout=20,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "merge-base", "--is-ancestor", older, newer],
+            capture_output=True, check=False, timeout=20,
+        )
+    except FileNotFoundError:
+        raise ValueError("Git executable not found on PATH") from None
     return result.returncode == 0
 
 
