@@ -29,6 +29,18 @@ def build_parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init", help="register a Git project")
     init.add_argument("--test-command", help="approved executable and arguments, no shell syntax")
 
+    session = commands.add_parser("session", help="group recorded events into a work session")
+    session_commands = session.add_subparsers(dest="session_command", required=True)
+    session_commands.add_parser("start", help="begin a session").add_argument(
+        "label", nargs="?", default="Development session"
+    )
+    session_commands.add_parser("end", help="end the active session")
+    session_commands.add_parser("status", help="show the active session")
+    session_commands.add_parser("list", help="list recent sessions")
+    session_commands.add_parser("show", help="show a session and its events").add_argument(
+        "session_id"
+    )
+
     task = commands.add_parser("task", help="record or inspect an explicit task")
     task_commands = task.add_subparsers(dest="task_command", required=True)
     task_commands.add_parser("add").add_argument("title")
@@ -73,6 +85,17 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "init":
             result = service.register_project(project_path, args.test_command)
+        elif args.command == "session":
+            if args.session_command == "start":
+                result = service.start_session(project_path, args.label)
+            elif args.session_command == "end":
+                result = service.end_session(project_path)
+            elif args.session_command == "status":
+                result = service.active_session(project_path)
+            elif args.session_command == "list":
+                result = service.sessions(project_path)
+            else:
+                result = service.session_history(project_path, args.session_id)
         elif args.command == "task":
             if args.task_command == "add":
                 result = service.add_task(project_path, args.title)

@@ -70,6 +70,16 @@ def arc_get_task_history(task_id: str) -> dict:
 
 
 @mcp.tool(annotations=READ_ONLY)
+def arc_get_session_history(session_id: str) -> dict:
+    """Get the time range and recorded evidence for one development session."""
+    service, project = _service()
+    try:
+        return service.session_history(project, session_id)
+    finally:
+        service.close()
+
+
+@mcp.tool(annotations=READ_ONLY)
 def arc_get_event(event_id: str) -> dict:
     """Inspect an evidence record returned by project state or memory search."""
     service, project = _service()

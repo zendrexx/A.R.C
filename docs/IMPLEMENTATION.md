@@ -1,6 +1,6 @@
-# Phase 0 implementation notes
+# Current implementation notes
 
-The full vision and 14-day roadmap remain in [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md). This file describes the code that exists now, so neither developer needs to infer a feature from the proposal.
+The full vision and 14-day roadmap remain in [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md). This file describes the Phase 0 prototype plus the first explicit session-tracking step from Phase 1, so neither developer needs to infer a feature from the proposal.
 
 ## Current architecture
 
@@ -18,7 +18,9 @@ Explicit CLI action ──> ArcService ──> Git snapshot / configured test
 
 The first integrated contract is `ArcService` in `arc/service.py`. It accepts an explicitly registered `Path` for each operation. `arc/contracts.py` defines `GitSnapshot` and `SearchHit`. The memory engine receives a `Store` and an `Embedder` protocol, so Developer 1 can evaluate models without changing project collection or MCP tools. `MemoryEngine.index_pending(project_id)` writes vectors keyed by event ID. `MemoryEngine.search(project_id, query)` returns `{mode, hits}` and labels keyword fallback explicitly.
 
-SQLite tables are `projects`, `tasks`, `events`, `vectors`, `checkpoints`, and `event_fts`. Events include type, timestamp, source, source reference, optional task ID, Git head, fingerprint, and JSON details. Vectors store only selected event summaries; there is no source-file embedding. A.R.C. stores its SQLite file with mode `0600` on macOS.
+SQLite tables are `projects`, `sessions`, `tasks`, `events`, `vectors`, `checkpoints`, and `event_fts`. Events include type, timestamp, source, source reference, optional task ID, optional session ID, Git head, fingerprint, and JSON details. Vectors store only selected event summaries; there is no source-file embedding. A.R.C. stores its SQLite file with mode `0600` on macOS. Opening an older Phase 0 database adds the nullable session ID column without assigning old events to a session.
+
+`arc session start`, `status`, `list`, `show`, and `end` manage one explicit active session per project. New notes, Git captures, test results, and confirmation events join that session while it is active. `arc state` exposes the active session and session IDs on recent events; `arc_get_session_history` exposes its records to MCP clients. Events recorded outside a session retain a null session ID. This does not start observation automatically.
 
 Every search hit has an `arc:event/<id>` source reference. `arc event <id>` or the `arc_get_event` MCP tool retrieves that recorded evidence for inspection.
 
@@ -50,6 +52,7 @@ No raw source content is stored or uploaded. Explicit notes and captured test-ou
 | Claim is not marked tested without evidence | Passed in automated test |
 | Tests and checkpoints become stale after project change | Passed in automated tests |
 | MCP client initializes and calls `arc_get_project_state` over stdio | Passed in automated test |
+| Explicit session grouping, MCP session history, and old-database migration | Passed in automated tests |
 | Local `all-minilm` generates an embedding | Passed; 384 values returned |
 | Paraphrased incident ranks above unrelated note | Passed in local model test and CLI smoke test; also passed with Ollama cloud features disabled |
 | Network physically disconnected during search | Not yet tested |

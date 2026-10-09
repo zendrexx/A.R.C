@@ -14,6 +14,8 @@ def test_new_agent_can_call_project_state_over_stdio(sample_repo, tmp_path):
     try:
         service.register_project(sample_repo)
         task = service.add_task(sample_repo, "Finish the login flow")
+        work_session = service.start_session(sample_repo, "Login work")
+        evidence = service.record_note(sample_repo, "note", "Started login work")
     finally:
         service.close()
 
@@ -30,8 +32,14 @@ def test_new_agent_can_call_project_state_over_stdio(sample_repo, tmp_path):
                 tools = await session.list_tools()
                 assert "arc_get_project_state" in {tool.name for tool in tools.tools}
                 assert "arc_get_event" in {tool.name for tool in tools.tools}
+                assert "arc_get_session_history" in {tool.name for tool in tools.tools}
                 result = await session.call_tool("arc_get_project_state", {})
                 assert result.is_error is False
                 assert task["id"] in str(result)
+                history = await session.call_tool(
+                    "arc_get_session_history", {"session_id": work_session["id"]}
+                )
+                assert history.is_error is False
+                assert evidence["id"] in str(history)
 
     asyncio.run(round_trip())

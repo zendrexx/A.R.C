@@ -530,23 +530,11 @@ Embedding models can be substantially smaller than powerful code-generation LLMs
 
 After the local models have been downloaded, repeated local semantic searches do not require per-query cloud inference charges.
 
-## 4.4 Optional Cloud AI
+## 4.4 Offline AI Boundary
 
-A.R.C. may provide a separate cloud-assisted investigation feature.
+The planned A.R.C. collector, search, chatbot, and VS Code extension use local storage and local Ollama models only. Once dependencies and models are installed, these features must work with networking disabled. A.R.C. does not add a cloud AI endpoint or an external database. A separate coding agent connected through MCP may have its own network behavior; that is outside A.R.C.'s local AI path.
 
-The user could select relevant evidence and explicitly send it to a coding model for deeper analysis.
-
-Cloud AI can help with:
-
-- Complex code reasoning
-- Generating possible fixes
-- Explaining unfamiliar frameworks
-- Reviewing proposed changes
-- Creating tests
-
-However, all core memory functions must continue to work without it.
-
-**The cloud model is the coding specialist. A.R.C. is the independent local memory and evidence layer.**
+The future chatbot uses `all-minilm` for retrieval and `qwen3:1.7b` for evidence-grounded conversation. It is an explanation interface, not an authority that can mark a task complete or execute a fix.
 
 ---
 
@@ -561,14 +549,16 @@ However, all core memory functions must continue to work without it.
 | Local database | SQLite |
 | Text search | SQLite FTS5 |
 | Local embeddings | Ollama with all-minilm |
+| Future local chat | Ollama with qwen3:1.7b, invoked only for a chat request |
 | Vector retrieval | sqlite-vec, or simple in-memory cosine search initially |
 | Git integration | Git CLI |
 | File monitoring | watchdog |
 | MCP integration | Official Python MCP SDK |
 | Application interface | Streamlit for MVP; PySide6 later if needed |
+| Future editor interface | Lightweight VS Code extension in TypeScript, using the existing Python backend |
 | Testing | pytest |
 | Local explanation model | Optional small quantized LLM |
-| Cloud coding assistants | Codex and Claude Code through compatible integrations |
+| External coding-agent integration | Codex and Claude Code through compatible local MCP integrations; A.R.C. itself stays local |
 
 Pin dependency versions once a working environment is confirmed, especially the MCP SDK, which has undergone major version changes.
 
@@ -642,6 +632,18 @@ Provides project-memory functions to compatible coding agents.
 
 Allows developers to inspect, search, correct, and control their stored project memory.
 
+### Future Component H — Automatic Observation Worker
+
+Runs only for a project the user has enabled. It coalesces file changes, checks local Git state and new commits, accepts results from supported test integrations, and writes source-labelled events to the existing SQLite store. A standalone `arc watch` path can observe work outside VS Code while running; a saved Git cursor can recover commits when observation restarts. Pause and disable controls stop collection. An intentional pause must not silently backfill activity from the paused period.
+
+### Future Component I — Offline Answer Engine
+
+Parses the question's project and time range, retrieves bounded evidence from SQLite using FTS5, embeddings, and filters, then asks local `qwen3:1.7b` to answer using those records. It checks that cited event references exist before showing an answer and states when evidence is missing. Long timelines use time-window aggregation and retrieval in batches; the full history is never placed in one model prompt.
+
+### Future Component J — VS Code Bridge
+
+Identifies the active workspace, connects a thin VS Code extension to the Python backend over a local stdio protocol, and exposes **A.R.C. Chat** and **A.R.C. Memory**. It does not duplicate the evidence or verification logic in TypeScript. The existing MCP server remains a separate interface over the same project-scoped SQLite data.
+
 ---
 
 ## 5.3 Proposed Database Entities
@@ -659,6 +661,8 @@ The MVP should have a small, structured database.
 | Decision | ID, decision text, rationale, source |
 | Checkpoint | ID, project state, created time, evidence references |
 | Memory | ID, text, vector reference, related entity IDs |
+| Collector cursor (future) | Project ID, observation source, last observed Git commit, pause state |
+| Index job (future) | Event ID, embedding model, queued/retry state, completion time |
 
 One session may contain multiple events.
 
@@ -667,6 +671,18 @@ One task may have multiple attempts and verifications.
 One checkpoint may reference many tasks and events.
 
 Do not store every full source file inside the semantic vector database. Store structured metadata and selected evidence, with links to the actual source.
+
+Future schema changes must migrate the existing `projects`, `tasks`, `events`, `vectors`, and `checkpoints` tables without losing Phase 0 data. Keep event IDs and `arc:event/<id>` references stable. Store timestamps in UTC, display them in the user's local time zone, and label each record's capture source and evidence level. The collector writes factual observations; the memory and chat layers may interpret them but cannot upgrade a task's verification state.
+
+```text
+Approved project → file watcher / Git cursor / supported test source
+                 → dedupe and privacy filter → SQLite evidence event
+                 → bounded automatic index queue → all-minilm vectors
+                 → time + type + FTS5 + semantic retrieval → Memory / MCP
+                                                        → qwen3:1.7b → Chat
+```
+
+The automatic worker and MCP process may share the database, so add SQLite write-ahead logging, a busy timeout, and a single writer policy before concurrent use. No raw terminal scraping, broad filesystem surveillance, or inferred test pass from a file save should be required.
 
 ---
 
@@ -790,7 +806,7 @@ Build reliable, permissioned project-event recording.
 - [x] Capture changed paths and a Git fingerprint with explicit `arc capture`.
 - [x] Create explicit, unconfirmed checkpoints.
 - [x] Run configured test commands with captured exit codes, output tails, and fingerprints.
-- [ ] Associate events with sessions.
+- [x] Associate newly recorded events with an explicitly started session ID. Automatic session start/stop remains future work.
 - [x] Save resolvable `arc:event/<id>` source references.
 - [x] Display a basic recent-event list in `arc state` JSON. A full timeline view remains open.
 
@@ -1001,6 +1017,137 @@ The main user journey succeeds repeatedly on the demo machine with no cloud depe
 
 ---
 
+## Future expansion after Phase 7
+
+Phases 0–7 remain the current 14-day MVP roadmap. The following phases are **future work, not implemented**. They are ordered so automatic, trustworthy evidence exists before the chatbot and extension present it. Estimates are working days for the same two developers after the existing MVP gates; adjust them after measurement on the Mac M1 with 8GB unified memory.
+
+| Order | Future phase | Estimate | Dependency | User-visible milestone |
+|---|---|---:|---|---|
+| 1 | Phase 8 — Automatic observation | 2–3 days | Phase 1 recording and privacy rules | Meaningful file and Git activity appears without `arc capture` |
+| 2 | Phase 9 — Evidence and indexing | 2–3 days | Phase 8 event stream; Phase 2 embeddings | Supported test results and new memories are indexed without `arc index` |
+| 3 | Phase 10 — Offline AI chat | 3–4 days | Phase 9 evidence and search | Grounded answers to project-history questions |
+| 4 | Phase 11 — VS Code extension | 3–4 days | Stable Python query and control contract | Chat and Memory views for the selected workspace |
+| 5 | Phase 12 — Validation and tuning | 2–3 days | Integrated phases 8–11 | Repeatable offline workflow within the demo machine's resource budget |
+
+### Shared contract before Phase 8
+
+- Preserve the Phase 0 CLI, MCP tool names, evidence states, and `arc:event/<id>` references. Add a database migration and versioned API fields instead of changing their meaning.
+- Use one project-scoped service contract for CLI, MCP, the observation worker, and the extension. New operations should cover `observe.start/stop/status`, `activity.list`, `memory.search`, `chat.ask`, `checkpoint.get`, and `privacy.pause/resume` through local adapters. The exact transport can be finalized in Phase 8; the extension should use stdio to avoid a network service.
+- Give every automatic event a UTC timestamp, project ID, source type, stable deduplication key, optional session ID, Git fingerprint or commit when available, and resolvable evidence reference. Tag inferred summaries as interpretations, not observations.
+- Developer 1 owns indexing, retrieval, answer grounding, and model evaluation. Developer 2 owns collection, storage migration, controls, extension, and MCP compatibility. Both review contract and schema changes together.
+
+## Phase 8 — Automatic Project Observation (Future)
+
+**Target: 2–3 working days after Phase 7**
+
+### Objective
+
+Collect useful local development activity without requiring a note or capture command for each change.
+
+### Implementation order
+
+1. Developer 2 adds an opt-in `arc watch` worker for explicitly selected local Git repositories. Watch relevant file create/change/delete events and read Git HEAD/branch at startup, on changes, and at a low-frequency interval. The VS Code extension can later supervise the same worker while the workspace is active.
+2. Add a persisted Git commit cursor so a restart can record commits made while the worker was not running. Consider an optional, non-destructive Git hook for faster commit notification, but do not rely on a hook as the only source. Edits outside VS Code are observable while the worker runs; commits are recoverable on restart.
+3. Coalesce save bursts, compare a safe path plus file metadata/content hash or Git state, and avoid duplicate observations from watcher and Git signals. Ignore generated directories and sensitive paths before an event or embedding is written. Store changed paths and evidence references, not complete source files.
+4. Record observation sessions and add pause, resume, and disable controls. Pausing establishes a new baseline when resumed so deliberately unrecorded activity is not silently imported. Keep the worker idle when no approved workspace is active.
+
+### Milestone and acceptance
+
+- Ten repeated saves with unchanged content do not create ten records; a genuine stable change appears once with a timestamp and source.
+- A local commit made outside VS Code appears once, either while the worker runs or through the Git cursor when it restarts. No GitHub remote or push is required.
+- A synthetic `.env` change produces no stored event text or embedding. Pause stops new collection; resume and disable behave as labelled.
+- No file event alone changes a task to **tests passed** or **completed/confirmed**.
+
+## Phase 9 — Automatic Evidence Enrichment and Indexing (Future)
+
+**Target: 2–3 working days after Phase 8**
+
+### Objective
+
+Keep searchable memory current and attach trustworthy test and error evidence when it is available through supported sources.
+
+### Implementation order
+
+1. Developer 2 extends the configured test runner and adds adapters for VS Code task process results or structured test reports where their command, exit status, and project snapshot can be identified. Supported editor diagnostics may be recorded as error observations, but their disappearance is not proof of a fix. Do not infer a test pass from terminal text, a file save, or a commit. If an external test is not observable through a supported adapter, report its status as unknown.
+2. Record failed test events and later passing results as separate facts. Link a proposed fix only when the change and relevant check can be associated; otherwise present a possible relationship that needs review. Keep an agent's progress statement separate from observed evidence.
+3. Developer 1 adds a bounded queue that embeds eligible new event summaries automatically with `all-minilm`, batches bursts, retries when Ollama is unavailable, and persists pending work across restarts. Keep FTS5 available if embeddings are delayed; show index freshness in status.
+4. Add project, event-type, and time filters to retrieval. Combine keyword and semantic candidates with an explicit ranking policy and deduplicate their source references. Migrate old Phase 0 events without losing them.
+
+### Milestone and acceptance
+
+- A supported test run appears with command, exit code, output reference, and fingerprint; an unrelated terminal command does not become a verified test.
+- New eligible events become semantically searchable without `arc index`; after Ollama is stopped and restarted, queued events are indexed once.
+- Replaying watcher and test notifications does not create duplicate evidence. Existing CLI and MCP tests still pass after the schema migration.
+- A failed check followed by a passing check is reported with both timestamps; task completion still requires the original verification rules and confirmation.
+
+## Phase 10 — Offline Evidence-Backed Chat (Future)
+
+**Target: 3–4 working days after Phase 9**
+
+### Objective
+
+Answer questions about the project's history through local retrieval and `qwen3:1.7b`, with references that can be inspected.
+
+### Implementation order
+
+1. Developer 1 validates `qwen3:1.7b` on the actual M1 8GB machine and adds a local-only Ollama chat adapter. Pull the model during setup, use it only for chat requests, limit simultaneous generation to one request, and release it after idle time. Keep `all-minilm` as the retrieval model.
+2. Developer 2 adds deterministic SQLite queries for **today**, **yesterday**, a date range, task, error, fix, and chronological timeline. Store UTC timestamps and apply the selected local time zone when interpreting calendar words. A “why” answer needs a recorded rationale such as a decision, task note, or commit message; a diff alone cannot establish intent.
+3. Retrieve a bounded set of source-linked events using filters, FTS5, and embeddings. For a long project timeline, walk time windows or milestones and summarize each with its references; support continuation or pagination if the whole period cannot be represented faithfully in one answer.
+4. Ask the model to answer only from retrieved evidence. Validate cited IDs against the retrieved set, distinguish observed facts from proposed reasons or fixes, and say when no recorded evidence supports an answer. Chat text cannot alter task verification status or run commands.
+
+### Milestone and acceptance
+
+- With networking disabled, ask: “What happened today?”, “What changed yesterday?”, “What errors did we fix?”, “Why did we implement this feature?”, “Where did we leave off?”, and “Summarize our development timeline.” Answers use the correct local dates and clickable or resolvable event references.
+- An answer about a missing rationale says it was not recorded. A claimed fix with no passing check is not presented as verified.
+- A fixture history larger than one model context window is covered by bounded retrieval and time-window summaries or clearly marked continuation; the process never sends the entire archive to the model.
+
+## Phase 11 — VS Code Chat and Memory Extension (Future)
+
+**Target: 3–4 working days after Phase 10**
+
+### Objective
+
+Give developers a clean, lightweight editor interface while keeping Python and SQLite as the source of truth.
+
+### Implementation order
+
+1. Developer 2 creates a TypeScript extension with one A.R.C. view container and two sections: **A.R.C. Chat** for questions and cited answers, and **A.R.C. Memory** for captured activity, Git changes, tasks, verification, checkpoints, and timeline filters. Use native VS Code views where practical and a small webview only for the chat interaction.
+2. Detect the active local workspace and handle no-workspace and multi-root cases explicitly. Ask for approval before first observation of each project; start or connect to the project-scoped Python worker over stdio, then stop it when the workspace closes. Show collector, index, Ollama, and pause states.
+3. Expose pause, resume, disable, search, checkpoint inspection, and evidence navigation. Use VS Code theme tokens, keyboard navigation, and clear timestamp and verification labels. Keep scripts and content local; escape recorded text before rendering it.
+4. Developer 1 stabilizes the query and chat response contract and measures cold-start and active memory use. Preserve the existing MCP server so coding agents can still request the same project evidence independently of the extension.
+
+### Milestone and acceptance
+
+- Opening a registered workspace shows its current project without manual path entry; a multi-root workspace selects the intended repository without mixing records.
+- A.R.C. Chat answers from local evidence, and A.R.C. Memory shows a new captured event and its source. Pause from the extension stops collection.
+- Closing and reopening VS Code restores the project view from SQLite; MCP and CLI still retrieve the same event IDs. No cloud AI or external database is required.
+
+## Phase 12 — Offline, Reliability, and Resource Validation (Future)
+
+**Target: 2–3 working days after Phase 11**
+
+### Objective
+
+Make automatic tracking, long-term chat, and the extension dependable on the actual Mac M1 with 8GB unified memory.
+
+### Implementation order
+
+1. Both developers run a full project session with saves, an outside-editor commit, a failing test, a fix, a passing test, restart, fresh MCP query, and chatbot questions. Repeat with networking disabled after dependencies and models are installed.
+2. Measure observer idle CPU/RAM, event and index queue growth, model load and chat memory, answer latency, missed/duplicate events, and SQLite size on the demo machine. Set final budgets from these measurements; keep the collector idle when inactive, batch embeddings, and unload chat after idle time. Avoid simultaneous large model work if it causes swapping.
+3. Evaluate a labelled history with correct and misleading questions. Count citation validity, date correctness, missing-evidence responses, retrieval quality, false completion claims, and privacy leaks. Fix the failures that threaten the main user journey.
+4. Document actual measurements and limits, including activities that cannot be observed outside an active worker or supported Git/test sources. Record a backup demo of the offline workflow.
+
+### Completion gate
+
+On the Mac M1 8GB machine, a new developer can open a project in VS Code, have selected activity recorded automatically, ask local chat what happened, inspect supporting evidence, and retrieve the same state through MCP while disconnected. The observer remains usable during normal editing, the machine avoids sustained swap pressure during chat, excluded files stay out of memory, and unsupported completion claims remain unverified. Report observed resource and accuracy numbers rather than assumed targets.
+
+### References for this future design
+
+- [Ollama `qwen3:1.7b` model](https://ollama.com/library/qwen3:1.7b) for the proposed local conversation model.
+- [VS Code view containers and Tree View API](https://code.visualstudio.com/api/extension-guides/tree-view), [webview guidance](https://code.visualstudio.com/api/ux-guidelines/webviews), and [workspace/file-watcher/task APIs](https://code.visualstudio.com/api/references/vscode-api) for the extension plan.
+
+---
+
 # PART 8 — TEAM RESPONSIBILITIES
 
 ## Developer 1 — Local AI and Memory Infrastructure
@@ -1183,7 +1330,7 @@ Record useful context through one supported agent and retrieve it through anothe
 
 Store test data containing synthetic credentials, API tokens, and sensitive paths.
 
-**Expected:** The system follows configured collection exclusions, applies appropriate redaction, and never sends evidence to a cloud service without approval.
+**Expected:** The system follows configured collection exclusions, applies appropriate redaction, and never sends evidence to a cloud service.
 
 ### Initial Evaluation Targets
 
@@ -1212,8 +1359,8 @@ Because A.R.C. stores potentially sensitive development history, privacy should 
 5. Local storage with appropriate access permissions.
 6. Encryption for sensitive persistent records where supported.
 7. User access to view, edit, and delete stored memory.
-8. Clear separation between local inference and cloud API functionality.
-9. Explicit preview before sending project evidence to cloud AI.
+8. Local-only inference endpoints and no A.R.C. cloud AI or external database connection.
+9. Preview of the project evidence exposed through MCP or the local chatbot.
 10. No autonomous destructive modification or rollback of source files.
 
 ### Trust Boundaries
@@ -1319,6 +1466,8 @@ Allow teams to share selected, approved project memories and verification record
 Expand toward safely evaluating historical solutions, suggesting relevant regression tests, and identifying repeated process failures.
 
 Any automatic code-changing or recovery capability should require separate permission and isolated execution.
+
+The planned local-first expansion in **Phases 8–12** adds automatic observation, automatic indexing, an offline chatbot, and a VS Code extension. Those phases extend this roadmap after the MVP; they do not change the Phase 0–7 completion gates or the evidence rules.
 
 ---
 

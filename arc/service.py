@@ -43,6 +43,31 @@ class ArcService:
         project = self._project(path)
         return self.store.add_task(project["id"], redact(title.strip()))
 
+    def start_session(self, path: Path, label: str = "Development session") -> dict:
+        if not label.strip():
+            raise ValueError("Session label must not be empty")
+        project = self._project(path)
+        return self.store.start_session(project["id"], redact(label.strip()))
+
+    def end_session(self, path: Path) -> dict:
+        return self.store.end_session(self._project(path)["id"])
+
+    def active_session(self, path: Path) -> dict | None:
+        return self.store.active_session(self._project(path)["id"])
+
+    def sessions(self, path: Path, limit: int = 20) -> list[dict]:
+        return self.store.sessions(self._project(path)["id"], min(max(limit, 1), 100))
+
+    def session_history(self, path: Path, session_id: str) -> dict:
+        project = self._project(path)
+        session = self.store.get_session(session_id)
+        if not session or session["project_id"] != project["id"]:
+            raise ValueError("Session was not found in this project")
+        events = self.store.session_events(project["id"], session_id)
+        total = self.store.session_event_count(project["id"], session_id)
+        return {"session": session, "events": events,
+                "total_events": total, "has_more": total > len(events)}
+
     def record_note(self, path: Path, kind: str, text: str,
                     task_id: str | None = None) -> dict:
         if kind not in NOTE_KINDS:
@@ -158,12 +183,14 @@ class ArcService:
         return {
             "project": {"id": project["id"], "name": project["name"],
                         "path": project["path"]},
+            "active_session": self.store.active_session(project["id"]),
             "git": {"head": observed.head, "fingerprint": observed.fingerprint,
                     "changed_paths": list(observed.changed_paths)},
             "tasks": tasks,
             "recent_events": [{"id": event["id"], "kind": event["kind"],
                                "summary": event["summary"], "source_ref": event["source_ref"],
-                               "created_at": event["created_at"]} for event in recent],
+                               "created_at": event["created_at"],
+                               "session_id": event["session_id"]} for event in recent],
             "latest_checkpoint": ({"id": checkpoint["id"],
                                    "created_at": checkpoint["created_at"],
                                    "stale": checkpoint["fingerprint"] != observed.fingerprint}

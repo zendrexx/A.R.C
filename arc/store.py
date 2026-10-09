@@ -31,6 +31,12 @@ class Store:
                 title TEXT NOT NULL, claim TEXT, confirmed INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
+                label TEXT NOT NULL, started_at TEXT NOT NULL, ended_at TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS sessions_one_active_per_project
+                ON sessions(project_id) WHERE ended_at IS NULL;
             CREATE TABLE IF NOT EXISTS events (
                 id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
                 task_id TEXT REFERENCES tasks(id), kind TEXT NOT NULL,
@@ -50,6 +56,14 @@ class Store:
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS event_fts USING fts5(event_id UNINDEXED, summary);
         """)
+        columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(events)")}
+        if "session_id" not in columns:
+            self.connection.execute(
+                "ALTER TABLE events ADD COLUMN session_id TEXT REFERENCES sessions(id)"
+            )
+        self.connection.execute(
+            "CREATE INDEX IF NOT EXISTS events_session ON events(session_id)"
+        )
         self.connection.commit()
 
     def close(self) -> None:
@@ -102,6 +116,61 @@ class Store:
             "SELECT * FROM tasks WHERE project_id=? ORDER BY created_at, id", (project_id,)
         )]
 
+    def active_session(self, project_id: str) -> dict | None:
+        row = self.connection.execute(
+            "SELECT * FROM sessions WHERE project_id=? AND ended_at IS NULL",
+            (project_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def start_session(self, project_id: str, label: str) -> dict:
+        if self.active_session(project_id):
+            raise ValueError("A session is already active. End it before starting another.")
+        session_id = uuid4().hex[:12]
+        self.connection.execute(
+            "INSERT INTO sessions VALUES (?, ?, ?, ?, NULL)",
+            (session_id, project_id, label, utc_now()),
+        )
+        self.connection.commit()
+        return self.get_session(session_id)
+
+    def end_session(self, project_id: str) -> dict:
+        active = self.active_session(project_id)
+        if not active:
+            raise ValueError("No active session to end")
+        self.connection.execute(
+            "UPDATE sessions SET ended_at=? WHERE id=?",
+            (utc_now(), active["id"]),
+        )
+        self.connection.commit()
+        return self.get_session(active["id"])
+
+    def get_session(self, session_id: str) -> dict | None:
+        row = self.connection.execute(
+            "SELECT * FROM sessions WHERE id=?", (session_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def sessions(self, project_id: str, limit: int = 20) -> list[dict]:
+        return [dict(row) for row in self.connection.execute(
+            "SELECT * FROM sessions WHERE project_id=? ORDER BY rowid DESC LIMIT ?",
+            (project_id, limit),
+        )]
+
+    def session_events(self, project_id: str, session_id: str, limit: int = 100) -> list[dict]:
+        rows = self.connection.execute(
+            "SELECT * FROM events WHERE project_id=? AND session_id=? ORDER BY rowid LIMIT ?",
+            (project_id, session_id, limit),
+        )
+        return [self._event(row) for row in rows]
+
+    def session_event_count(self, project_id: str, session_id: str) -> int:
+        row = self.connection.execute(
+            "SELECT COUNT(*) FROM events WHERE project_id=? AND session_id=?",
+            (project_id, session_id),
+        ).fetchone()
+        return int(row[0])
+
     def set_claim(self, task_id: str, claim: str) -> None:
         self.connection.execute("UPDATE tasks SET claim=? WHERE id=?", (claim, task_id))
         self.connection.commit()
@@ -116,10 +185,15 @@ class Store:
         event_id = uuid4().hex
         if source_ref == "auto":
             source_ref = f"arc:event/{event_id}"
+        active = self.active_session(project_id)
         self.connection.execute(
-            """INSERT INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO events
+               (id, project_id, task_id, kind, summary, source, source_ref,
+                git_head, fingerprint, details_json, created_at, session_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (event_id, project_id, task_id, kind, summary, source, source_ref,
-             git_head, fingerprint, json.dumps(details or {}), utc_now()),
+             git_head, fingerprint, json.dumps(details or {}), utc_now(),
+             active["id"] if active else None),
         )
         self.connection.execute("INSERT INTO event_fts (event_id, summary) VALUES (?, ?)",
                                 (event_id, summary))
