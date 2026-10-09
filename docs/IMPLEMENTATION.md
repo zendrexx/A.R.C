@@ -41,9 +41,11 @@ No raw source content is stored or uploaded. Explicit notes and captured test-ou
 
 **Developer 1:** Continue evaluating `arc/memory.py` with a broader labelled incident set. The first seven-record fixture and local comparison live in `tests/fixtures/retrieval_cases.json` and `scripts/evaluate_retrieval.py`. Check additional paraphrases, false matches, latency on the demo hardware, and physically disconnected operation. Keep the `Embedder` and `MemoryEngine` method signatures stable.
 
-**Developer 2:** Improve collection and product flow in `arc/git_evidence.py`, `arc/store.py`, `arc/service.py`, `arc/cli.py`, and `arc/mcp_server.py`. The next step is a permissioned file watcher and a simple dashboard showing events, task evidence, and handoffs. Keep recorded facts separate from agent statements. Keep MCP tool names and result fields stable.
+**Developer 2:** Improve collection and product flow in `arc/git_evidence.py`, `arc/store.py`, `arc/service.py`, `arc/cli.py`, and `arc/mcp_server.py`. The next step is to finish Phase 3 task correction and verification review, then the Phase 4 evidence-linked handoff. The permissioned file watcher belongs to future Phase 8, after the current MVP gates. Keep recorded facts separate from agent statements. Keep MCP tool names and result fields stable.
 
 **Shared checkpoint:** Run the same real repository through `init`, `task add`, `capture`, `test`, `index`, `search`, `checkpoint`, and MCP retrieval. Note actual results. Agree before changing `arc/contracts.py` or the SQLite schema.
+
+See [TWO_DEVELOPER_WORKFLOW.md](TWO_DEVELOPER_WORKFLOW.md) for the exact simultaneous branch split, current-use commands, and future-phase handoffs.
 
 ## Phase 0 validation status
 

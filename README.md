@@ -4,6 +4,8 @@ A.R.C. is a local development-memory prototype. It records **selected** Git stat
 
 This repository currently implements the **Phase 0 runnable slice** and explicit session grouping from Phase 1 of [the product plan](docs/DEVELOPMENT_PLAN.md). It is a CLI and MCP prototype; file watching, the dashboard, and the offline chatbot are later phases.
 
+For a two-person implementation split and a practical daily-use sequence, see [the two-developer workflow](docs/TWO_DEVELOPER_WORKFLOW.md). Each developer uses a separate branch and local SQLite database. A.R.C. itself reads local Git state; only sharing source code between machines needs a Git push.
+
 ## Set up on macOS
 
 Python 3.11, Git, and Ollama are required. The first package install and model pull need internet. In a terminal at the repository root:
@@ -26,14 +28,12 @@ source .venv/bin/activate
 ollama pull all-minilm
 export ARC_DB="$PWD/.arc/arc.sqlite3"
 arc init --test-command "$PWD/.venv/bin/python -m pytest -q"
-arc note --kind error "SQLite schema migration failed because the users table was missing"
-arc note --kind decision "Use a green accent for the dashboard"
-arc index
-arc search "Why did the database upgrade crash?" --semantic-only
 arc state
 ```
 
 `arc index` sends the selected event summaries only to Ollama on `127.0.0.1`. Default search keeps cosine-ranked semantic results and says `"mode": "semantic"`. If Ollama is unavailable or records have not been indexed, ordinary search labels its FTS5 results `keyword_fallback`; `--semantic-only` instead requires the model and reports when indexing is needed. Indexing is still manual in this phase.
+
+The setup commands register the real project database without adding sample incidents. For a separate example run, use the [first hands-on test](#first-hands-on-test). For actual development, start a session and follow [the current-use steps](docs/TWO_DEVELOPER_WORKFLOW.md#start-using-the-finished-prototype).
 
 Use `arc search "database upgrade" --kind error` to filter by event type. Use `--keyword-only` to search without Ollama, or `--hybrid` to combine semantic and exact keyword rankings. Results include indexed and pending record counts; `score_kind` identifies how each ranking score was computed, and scores are not probabilities.
 
@@ -97,6 +97,8 @@ codex mcp add arc \
 codex mcp list
 ```
 
+If the terminal reports `codex: command not found`, use the bundled VS Code Codex binary and the real-database reconfiguration commands in [the two-developer guide](docs/TWO_DEVELOPER_WORKFLOW.md#start-using-the-finished-prototype). Changing `ARC_DB` in a terminal does not update an MCP entry that was already saved.
+
 Restart the Codex session, then ask: **“Use A.R.C. to show this project's current state and what remains unfinished.”** The server offers `arc_get_project_state`, `arc_search_memory`, `arc_get_recent_changes`, `arc_get_task_history`, `arc_get_session_history`, `arc_get_event`, and `arc_create_checkpoint`. The last tool saves an unconfirmed candidate. Connecting the server makes returned project summaries available to the coding agent, so review what you record before enabling it.
 
 The [official Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp) documents local stdio servers and `codex mcp add`. The server uses the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk). Ollama's [all-minilm model page](https://ollama.com/library/all-minilm) documents the model pull and local embedding endpoint; its [FAQ](https://github.com/ollama/ollama/blob/main/docs/faq.mdx) documents local-only mode.
@@ -117,4 +119,6 @@ The tests cover unverified claims, current versus stale test evidence, checkpoin
 | **2 — Product/evidence** | Git observation, SQLite, verification rules, CLI, MCP | `arc/git_evidence.py`, `arc/store.py`, `arc/service.py`, `arc/cli.py`, `arc/mcp_server.py`, product tests |
 
 Both developers agree before changing `arc/contracts.py` or the SQLite schema. The shared flow is **recorded event → SQLite `events` row → embedding indexed by event ID → search hit with source reference**. The product track owns the event truth; the memory track ranks only recorded evidence. See [implementation notes](docs/IMPLEMENTATION.md) for the interfaces and next checkpoints.
+
+The [parallel phase schedule](docs/TWO_DEVELOPER_WORKFLOW.md#parallel-ownership-and-phase-split) gives each developer their next task, branch, integration gate, and a Codex prompt. The current MCP entry on this machine still points to the trial database; the guide includes the exact switch to the real database.
 
