@@ -5,6 +5,19 @@ import { randomBytes } from 'node:crypto';
 import { Backend } from './backend';
 import { memoryRows, Row } from './model';
 
+const chatActions = [
+  {command: 'arc.createProject', label: 'Register this project', pattern: /\b(create|register|initialize|init)\b.*\bproject\b/i},
+  {command: 'arc.observe', label: 'Enable observation', pattern: /\b(enable|start|turn on)\b.*\b(observation|observing|recording)\b/i},
+  {command: 'arc.pause', label: 'Pause observation', pattern: /\bpause\b.*\b(observation|observing|recording)\b/i},
+  {command: 'arc.resume', label: 'Resume observation', pattern: /\bresume\b.*\b(observation|observing|recording)\b/i},
+  {command: 'arc.disable', label: 'Disable observation', pattern: /\b(disable|stop|turn off)\b.*\b(observation|observing|recording)\b/i},
+  {command: 'arc.connect', label: 'Connect project', pattern: /\bconnect\b.*\bproject\b/i},
+  {command: 'arc.capture', label: 'Capture Git changes', pattern: /\b(capture|record)\b.*\b(git|changes|snapshot)\b/i},
+  {command: 'arc.index', label: 'Index memory', pattern: /\bindex\b.*\b(memory|records|pending)\b/i},
+  {command: 'arc.checkpoint', label: 'Create checkpoint', pattern: /\b(create|save)\b.*\bcheckpoint\b/i},
+  {command: 'arc.test', label: 'Run configured tests', pattern: /\b(run|execute)\b.*\btests?\b/i},
+];
+
 class MemoryView implements vscode.TreeDataProvider<Row>, vscode.Disposable {
   private changed = new vscode.EventEmitter<Row | undefined>();
   readonly onDidChangeTreeData = this.changed.event;
@@ -76,7 +89,7 @@ export function activate(context: vscode.ExtensionContext) {
   };
   const register = (name: string, action: (...args: any[]) => any) => {
     context.subscriptions.push(vscode.commands.registerCommand(name, async (...args: any[]) => {
-      try { await action(...args); } catch (error) { vscode.window.showErrorMessage(String(error instanceof Error ? error.message : error)); }
+      try { return await action(...args); } catch (error) { vscode.window.showErrorMessage(String(error instanceof Error ? error.message : error)); return false; }
     }));
   };
   const pickFolder = async (title: string) => {
@@ -159,12 +172,27 @@ export function activate(context: vscode.ExtensionContext) {
     if (current === backend) await refresh();
   });
   register('arc.refresh', refresh);
+  register('arc.createProject', async () => {
+    if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before registering a project.');
+    const folders = vscode.workspace.workspaceFolders?.filter(f => f.uri.scheme === 'file') ?? [];
+    const choice = folders.length === 1 ? folders[0] : (await vscode.window.showQuickPick(folders.map(folder => ({label: folder.name, folder})), {title: 'Register a Git project with A.R.C.'}))?.folder;
+    if (!choice) throw new Error('Open a local Git project folder first.');
+    const config = vscode.workspace.getConfiguration('arc');
+    const localPython = path.join(choice.uri.fsPath, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+    const python = config.get<string>('pythonPath') || (existsSync(localPython) ? localPython : process.platform === 'win32' ? 'python' : 'python3');
+    const database = config.get<string>('databasePath') || '';
+    if (database && !path.isAbsolute(database)) throw new Error('A.R.C. databasePath must be absolute.');
+    const registration = new Backend(python, choice.uri.fsPath, database);
+    try { await registration.request(['init']); } finally { registration.dispose(); }
+    await vscode.window.showInformationMessage(`Registered ${choice.name} with A.R.C. Use Connect Project to open its memory.`);
+  });
   register('arc.disconnect', async () => {disconnect(); await context.workspaceState.update('selectedProject', undefined);});
   register('arc.observe', async () => {
     const current = requireBackend();
     const answer = await vscode.window.showInformationMessage('Enable automatic observation for this project? A.R.C. records eligible Git path changes and commits while connected, recovers commits after restart, and indexes summaries locally. It never stores file bodies. Pause deliberately excludes activity until resume.', {modal: true}, 'Enable');
-    if (answer !== 'Enable' || current !== backend) return;
+    if (answer !== 'Enable' || current !== backend) return false;
     await current.request(['observer', 'enable']); current.startObserver(); await refresh();
+    return true;
   });
   for (const action of ['pause', 'resume', 'disable']) {
     register(`arc.${action}`, async () => {
@@ -245,21 +273,75 @@ export function activate(context: vscode.ExtensionContext) {
       view.webview.options = {enableScripts: true, localResourceRoots: []};
       view.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><style nonce="${nonce}">
         body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);padding:16px;line-height:1.5} h1{font-size:21px;margin:8px 0} .muted{color:var(--vscode-descriptionForeground)} .card{border:1px solid var(--vscode-widget-border);border-radius:8px;padding:14px;margin:18px 0} button{width:100%;padding:9px;margin:5px 0;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:0;cursor:pointer} button:hover{background:var(--vscode-button-hoverBackground)} button:focus-visible{outline:2px solid var(--vscode-focusBorder)} textarea{box-sizing:border-box;width:100%;padding:9px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border)}
+<<<<<<< HEAD
+      </style></head><body><p class="muted">A.R.C. / LOCAL MEMORY</p><h1>Pick up where you left off.</h1><p>Find the evidence behind your project's progress.</p><div class="card"><label for="question">Ask about your project</label><textarea id="question" rows="3" maxlength="2000" placeholder="Ask about changes, or type Enable observation"></textarea><button id="ask">Ask A.R.C.</button><button id="more" hidden>Load older history</button><p id="answer" role="status" aria-live="polite" style="white-space:pre-wrap"></p><div id="sources"></div></div><button id="search">Search memory</button><button id="connect">Connect project</button><p class="muted">Local Ollama answers from recorded evidence. Action requests offer buttons. Commands are also available through Ctrl+Shift+P.</p><script nonce="${nonce}">
+      const vscode=acquireVsCodeApi(); let offset=0; let snapshot; let question=''; let requestId=0;
+      const sourceStyle=document.createElement('style');sourceStyle.setAttribute('nonce','${nonce}');sourceStyle.textContent='#sources{display:flex;flex-direction:column;gap:14px;margin-top:18px}.source-card{display:flex;flex-direction:column;align-items:stretch;gap:8px;text-align:left;width:100%;margin:0;padding:16px;border:1px solid var(--vscode-widget-border,var(--vscode-input-border));border-radius:8px;background:var(--vscode-editor-background);color:var(--vscode-foreground);line-height:1.5;overflow-wrap:anywhere}.source-card:hover{background:var(--vscode-list-hoverBackground)}.source-date{font-weight:600}.source-time{color:var(--vscode-descriptionForeground)}.source-details{display:flex;flex-direction:column;gap:6px;margin:4px 0}.source-kind{font-weight:600}.source-action{color:var(--vscode-textLink-foreground);font-size:12px;margin-top:6px}';document.head.appendChild(sourceStyle);
+      function renderSources(citations){
+        const container=document.getElementById('sources');container.replaceChildren();
+        const ordered=[...citations].sort((a,b)=>(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0));
+        for(const source of ordered){
+          const card=document.createElement('button');card.className='source-card';card.type='button';
+          const stamp=new Date(source.created_at);const valid=!Number.isNaN(stamp.getTime());
+          const date=valid?stamp.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}):'Date unavailable';
+          const time=valid?stamp.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}):'Time unavailable';
+          function line(parent,text,className){const item=document.createElement('span');item.className=className;item.textContent=text;parent.appendChild(item);}
+          line(card,date,'source-date');line(card,time,'source-time');
+          const details=document.createElement('span');details.className='source-details';
+          const paths=Array.isArray(source.changed_paths)?source.changed_paths:[];
+          if(paths.length){line(details,'Git changes','source-kind');for(const path of paths)line(details,path,'source-detail');}
+          else {const summary=String(source.summary||'');const match=summary.match(/^(?:Observed )?Git changes: (.*)$/);if(match){line(details,'Git changes','source-kind');for(const path of match[1].split(', '))line(details,path,'source-detail');}else line(details,summary,'source-detail');}
+          card.appendChild(details);line(card,'Inspect evidence','source-action');
+          card.setAttribute('aria-label','Inspect evidence from '+date+' at '+time);
+          card.addEventListener('click',()=>vscode.postMessage({action:'event',id:source.id}));container.appendChild(card);
+        }
+      }
+=======
       </style></head><body><p class="muted">A.R.C. / LOCAL MEMORY</p><h1>Pick up where you left off.</h1><p>Find the evidence behind your project's progress.</p><div class="card"><label for="question">Ask about your project</label><textarea id="question" rows="3" maxlength="2000" placeholder="What did we work on yesterday?"></textarea><button id="ask">Ask A.R.C.</button><p id="ai" class="muted" role="status"></p><button id="more" hidden>Load older history</button><p id="answer" role="status" aria-live="polite" style="white-space:pre-wrap"></p><div id="sources"></div></div><button id="search">Search memory</button><button id="connect">Connect project</button><p class="muted">Answers quote recorded evidence. Claims remain unverified; local Ollama optionally selects sources.</p><script nonce="${nonce}">
       const vscode=acquireVsCodeApi(); let offset=0; let snapshot; let question=''; let requestId=0; let aiReady=false;
+>>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
       for(const action of ['search','connect'])document.getElementById(action).addEventListener('click',()=>vscode.postMessage({action}));
       function ask(next){question=next?question:document.getElementById('question').value.trim();if(!question)return;if(!aiReady){document.getElementById('answer').textContent=document.getElementById('ai').textContent||'Connect a project and start Ollama to use local chat.';return;}offset=next?offset:0;snapshot=next?snapshot:undefined;requestId++;document.getElementById('ask').disabled=true;document.getElementById('more').hidden=true;document.getElementById('answer').textContent='Reading local evidence…';document.getElementById('sources').replaceChildren();vscode.postMessage({action:'ask',question,offset,snapshot,requestId,timezoneOffset:-new Date().getTimezoneOffset()});}
       document.getElementById('ask').addEventListener('click',()=>ask(false)); document.getElementById('more').addEventListener('click',()=>ask(true));
+<<<<<<< HEAD
+      window.addEventListener('message',({data})=>{
+        if(data.action==='reset'){requestId++;document.getElementById('ask').disabled=false;document.getElementById('answer').textContent='Connect a project to ask about its evidence.';document.getElementById('sources').replaceChildren();document.getElementById('more').hidden=true;return;}
+        if(data.requestId!==requestId)return;
+        document.getElementById('ask').disabled=false;
+        const result=data.result;const citations=result?.citations||[];
+        const intro=result?.answer_intro||(citations.length?String(result.answer).split('\\n').filter(line=>!/^\\[[^\\]]+\\]/.test(line)).join('\\n'):result?.answer);
+        document.getElementById('answer').textContent=data.error||[intro,result?.notice].filter(Boolean).join('\\n\\n');
+        renderSources(citations);
+        for(const action of result?.actions||[]){const button=document.createElement('button');button.textContent=action.label;button.addEventListener('click',()=>{button.disabled=true;vscode.postMessage({action:'command',command:action.command});});document.getElementById('sources').appendChild(button);}
+        offset=result?.next_offset;snapshot=result?.snapshot_rowid;document.getElementById('more').hidden=offset==null;
+      });
+=======
       window.addEventListener('message',({data})=>{if(data.action==='reset'){requestId++;aiReady=false;document.getElementById('ask').disabled=true;document.getElementById('ai').textContent='';document.getElementById('answer').textContent='Connect a project to ask about its evidence.';document.getElementById('sources').replaceChildren();document.getElementById('more').hidden=true;return;}if(data.action==='ai'){aiReady=data.ready===true;document.getElementById('ask').disabled=!aiReady;document.getElementById('ai').textContent=aiReady?'Local model ready: '+(data.model||'qwen3:1.7b'):(data.reason?'Local model required — '+data.reason:'Connect a project to check the local model.');return;}if(data.requestId!==requestId)return;document.getElementById('ask').disabled=!aiReady;document.getElementById('answer').textContent=data.error||data.result.answer;const sources=document.getElementById('sources');sources.replaceChildren();for(const source of data.result?.citations||[]){const b=document.createElement('button');b.textContent='Inspect '+source.id.slice(0,8)+' · '+source.summary;b.addEventListener('click',()=>vscode.postMessage({action:'event',id:source.id}));sources.appendChild(b);}offset=data.result?.next_offset;snapshot=data.result?.snapshot_rowid;document.getElementById('more').hidden=offset==null;});
+>>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
       </script></body></html>`;
       void pushAiStatus();
       const listener = view.webview.onDidReceiveMessage(message => {
+        if (message?.action === 'command' && chatActions.some(action => action.command === message.command)) void vscode.commands.executeCommand(message.command);
         if (message?.action === 'search' || message?.action === 'connect') void vscode.commands.executeCommand(`arc.${message.action}`);
         if (message?.action === 'event' && typeof message.id === 'string') void vscode.commands.executeCommand('arc.openEvent', message.id);
         if (message?.action === 'ask' && typeof message.question === 'string' && message.question.length <= 2000 && Number.isInteger(message.offset) && message.offset >= 0 && Number.isInteger(message.timezoneOffset) && (message.snapshot === undefined || Number.isInteger(message.snapshot) && message.snapshot >= 0)) {
           const current = backend; const token = generation;
           void (async () => {
             try {
+              const actions = /\b(don't|do not|never)\b/i.test(message.question) ? [] : chatActions.filter(action => action.pattern.test(message.question));
+              if (actions.length === 1 && actions[0].command === 'arc.observe' && !/\b(how|why|what happens)\b/i.test(message.question)) {
+                if (!current) throw new Error('Connect a project first.');
+                const enabled = await vscode.commands.executeCommand<boolean>('arc.observe');
+                if (token === generation) await view.webview.postMessage({requestId: message.requestId, result: {
+                  answer_intro: enabled ? 'Automatic observation is enabled.' : 'Automatic observation was not enabled.',
+                  citations: [], next_offset: null
+                }});
+                return;
+              }
+              if (actions.length) {
+                await view.webview.postMessage({requestId: message.requestId, result: {answer_intro: 'Choose an action below. Registering a project adds your open Git folder to A.R.C.; it does not create application files.', citations: [], next_offset: null, actions: actions.map(({command,label}) => ({command,label}))}});
+                return;
+              }
               if (!current) throw new Error('Connect a project first.');
               const args = ['chat', message.question, '--timezone-offset', String(message.timezoneOffset), '--offset', String(message.offset)];
               if (message.snapshot !== undefined) args.push('--snapshot', String(message.snapshot));

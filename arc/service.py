@@ -636,10 +636,13 @@ class ArcService:
         limit = min(max(limit, 1), 100)
         offset = max(offset, 0)
         page = self.store.timeline(project["id"], limit, offset, kind)
+<<<<<<< HEAD
+=======
         if isinstance(page, tuple):
             events, total = page
         else:
             events, total = page["events"], page["total_events"]
+>>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
         return {"events": [{"id": event["id"], "kind": event["kind"],
                             "summary": event["summary"], "source": event["source"],
                             "source_ref": event["source_ref"],

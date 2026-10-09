@@ -218,6 +218,51 @@ def test_local_calendar_and_timeline_pagination(service, sample_repo):
     assert second['next_offset'] == 24
 
 
+def test_latest_change_after_local_midnight(service, sample_repo, monkeypatch):
+    import arc.chat as module
+    now = datetime(2026, 10, 9, 17, tzinfo=timezone.utc)
+    start, end = calendar_bounds('most recent change 12:30am onwards', 480, now)
+    assert start == '2026-10-09T16:30:00+00:00'
+    monkeypatch.setattr(module, 'calendar_bounds', lambda *_: (start, end))
+    project = service._project(sample_repo)
+    for minute in (20, 38):
+        event = service.store.add_event(project['id'], 'git', f'Changed docs at {minute}',
+            'git', f'test:{minute}', created_at=f'2026-10-09T16:{minute}:00+00:00')
+    service.record_note(sample_repo, 'note', 'Unrelated newer note')
+    result = answer(service, sample_repo, 'most recent change 12:30am onwards', 480, keyword_only=True)
+    assert [e['id'] for e in result['citations']] == [event['id']]
+    assert result['next_offset'] is None
+
+
+def test_generated_answer_uses_recorded_citations(service, sample_repo):
+    event = service.record_note(sample_repo, 'note', 'Started login work')
+    class Model:
+        def respond(self, question, events):
+            return 'You started login work.', [event['id']]
+    result = answer(service, sample_repo, 'Where did we leave off?', chat=Model())
+    assert result['answer_intro'] == 'You started login work.'
+    assert result['mode'] == 'local_model_answer'
+    assert result['citations'][0]['id'] == event['id']
+
+
+@pytest.mark.parametrize('word', ['oldest', 'earliest', 'first'])
+def test_oldest_change_returns_one_earliest_git_record(service, sample_repo, word):
+    project = service._project(sample_repo)
+    # Insert out of timestamp order, with more history than a chat page.
+    for number in range(15, 0, -1):
+        event = service.store.add_event(project['id'], 'git', f'Change {number}', 'git',
+            f'change:{number}', created_at=f'2026-10-{number:02d}T16:00:00+00:00')
+    service.store.add_event(project['id'], 'note', 'Older non-Git note', 'explicit', 'note',
+        created_at='2026-09-01T00:00:00+00:00')
+    result = answer(service, sample_repo, f'what time was my {word} change', 480,
+        keyword_only=True, offset=10)
+    assert [e['id'] for e in result['citations']] == [event['id']]
+    assert result['since'] is None
+    assert result['next_offset'] is None
+    latest = answer(service, sample_repo, 'most recent change', keyword_only=True)
+    assert latest['citations'][0]['summary'] == 'Change 15'
+
+
 def test_ollama_request_is_local_bounded_and_unloads(monkeypatch):
     from arc.chat import OllamaChat
     class Response:
