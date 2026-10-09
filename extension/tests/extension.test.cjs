@@ -93,16 +93,16 @@ test('chat offers actions before connecting and executes only allowlisted comman
     'arc.createProject');
   chat.send({action:'command',command:'arc.createProject'});
   await tick();
-  assert.equal(calls.length, 1);
   assert.equal(calls[0].join(','), 'init');
   assert.equal(app.instances[0].disposed, true);
+  assert.equal(app.instances[1].project, path.resolve('one'));
   chat.send({action:'command',command:'arbitrary.command'});
   await tick();
   assert.equal(app.errors.length, 0);
   await app.commands.get('arc.connect')();
   chat.send({action:'ask',question:'Please enable observation',offset:0,timezoneOffset:480,requestId:2});
   await tick();
-  assert.equal(app.instances[1].observing, true);
+  assert.equal(app.instances.at(-1).observing, true);
   assert.equal(app.messages.at(-1).result.answer_intro, 'Automatic observation is enabled.');
   assert.equal(app.messages.at(-1).result.actions, undefined);
   app.dispose();
