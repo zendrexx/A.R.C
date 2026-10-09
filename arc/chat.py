@@ -44,12 +44,14 @@ class OllamaChat:
             raise ValueError('Model answer has no supporting citations')
         return text, ids
 
-    def installed(self) -> bool:
+    def models(self) -> set:
         request = Request('http://127.0.0.1:11434/api/tags')
         with build_opener(ProxyHandler({})).open(request, timeout=5) as response:
             payload = json.load(response)
-        names = {m.get('name') or m.get('model') for m in payload.get('models', [])}
-        return self.model in names
+        return {m.get('name') or m.get('model') for m in payload.get('models', [])}
+
+    def installed(self) -> bool:
+        return self.model in self.models()
 
     def require(self) -> None:
         try:

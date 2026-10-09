@@ -186,6 +186,10 @@
         "title": "ARC: Download Model"
       },
       {
+        "command": "arc.modelActions",
+        "title": "ARC: AI Model Controls"
+      },
+      {
         "command": "arc.modelSettings",
         "title": "ARC: Open Model Settings"
       },

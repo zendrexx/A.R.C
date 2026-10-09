@@ -213,7 +213,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (!choice) throw new Error('Open a local Git project folder first.');
     const registration = backendFor(choice);
     try { await registration.request(['init']); } finally { registration.dispose(); }
-    await vscode.window.showInformationMessage(`Registered ${choice.name} with A.R.C. Use Connect Project to open its memory.`);
+    await connectTo(choice);
   });
   register('arc.disconnect', async () => {disconnect(); await context.workspaceState.update('selectedProject', undefined);});
   register('arc.observe', async () => {
@@ -325,8 +325,9 @@ export function activate(context: vscode.ExtensionContext) {
         }
       }
       for(const action of ['search','connect'])document.getElementById(action).addEventListener('click',()=>vscode.postMessage({action}));
-      function ask(next){question=next?question:document.getElementById('question').value.trim();if(!question)return;offset=next?offset:0;snapshot=next?snapshot:undefined;requestId++;document.getElementById('ask').disabled=true;document.getElementById('more').hidden=true;document.getElementById('answer').textContent='Reading local evidence…';document.getElementById('sources').replaceChildren();vscode.postMessage({action:'ask',question,offset,snapshot,requestId,timezoneOffset:-new Date().getTimezoneOffset(),keywordOnly:!aiReady});}
+      function ask(next){const input=document.getElementById('question');question=next?question:input.value.trim();if(!next)input.value='';if(!question)return;offset=next?offset:0;snapshot=next?snapshot:undefined;requestId++;document.getElementById('ask').disabled=true;document.getElementById('more').hidden=true;document.getElementById('answer').textContent='Reading local evidence…';document.getElementById('sources').replaceChildren();vscode.postMessage({action:'ask',question,offset,snapshot,requestId,timezoneOffset:-new Date().getTimezoneOffset(),keywordOnly:!aiReady});}
       document.getElementById('ask').addEventListener('click',()=>ask(false)); document.getElementById('more').addEventListener('click',()=>ask(true));
+      document.getElementById('question').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();ask(false);}});
       window.addEventListener('message',({data})=>{
         if(data.action==='reset'){requestId++;aiReady=false;document.getElementById('ask').disabled=false;document.getElementById('ai').textContent='';document.getElementById('answer').textContent='Connect a project to ask about its evidence.';document.getElementById('sources').replaceChildren();document.getElementById('more').hidden=true;return;}
         if(data.action==='ai'){aiReady=data.ready===true;document.getElementById('ai').textContent=aiReady?'Local model ready: '+(data.model||'qwen3:1.7b'):(data.reason?'Keyword evidence mode — '+data.reason:'Connect a project to check local AI.');return;}
