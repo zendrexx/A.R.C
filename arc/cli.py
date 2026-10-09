@@ -48,7 +48,42 @@ def build_parser() -> argparse.ArgumentParser:
     claim.add_argument("task_id")
     claim.add_argument("text")
     task_commands.add_parser("confirm", help="confirm current tested work").add_argument("task_id")
+    correct = task_commands.add_parser("correct", help="record a downward status correction")
+    correct.add_argument("task_id")
+    correct.add_argument("--to", required=True,
+                         choices=("planned", "implementation_observed"))
+    correct.add_argument("--reason", required=True)
+    task_commands.add_parser("review", help="show current verification evidence").add_argument(
+        "task_id"
+    )
     task_commands.add_parser("history").add_argument("task_id")
+
+    incident = commands.add_parser("incident", help="link errors, attempts, and resolutions")
+    incident_commands = incident.add_subparsers(dest="incident_command", required=True)
+    opened = incident_commands.add_parser("open", help="start from a recorded error event")
+    opened.add_argument("error_event_id")
+    opened.add_argument("--cause", help="explicit root cause, if known")
+    incident_commands.add_parser("list", help="list recorded incidents")
+    incident_commands.add_parser("show", help="show linked history").add_argument("incident_id")
+    attempt = incident_commands.add_parser("attempt", help="record and link a debugging attempt")
+    attempt.add_argument("incident_id")
+    attempt.add_argument("text")
+    attempt.add_argument("--outcome", choices=("failed", "inconclusive", "helped"),
+                         default="inconclusive")
+    linked = incident_commands.add_parser("link-attempt", help="link an existing attempt note")
+    linked.add_argument("incident_id")
+    linked.add_argument("attempt_event_id")
+    linked.add_argument("--outcome", choices=("failed", "inconclusive", "helped"),
+                        default="inconclusive")
+    resolved = incident_commands.add_parser("resolve", help="report a resolution with optional test")
+    resolved.add_argument("incident_id")
+    resolved.add_argument("text")
+    resolved.add_argument("--cause")
+    resolved.add_argument("--test-event", dest="test_event_id")
+    incident_search = incident_commands.add_parser("search", help="find related prior incidents")
+    incident_search.add_argument("query")
+    incident_search.add_argument("--cause", help="explicit cause of the new error, if known")
+    incident_search.add_argument("--limit", type=int, default=5)
 
     note = commands.add_parser("note", help="store an explicit development memory")
     note.add_argument("text")
@@ -68,6 +103,9 @@ def build_parser() -> argparse.ArgumentParser:
     search_modes.add_argument("--keyword-only", action="store_true")
     search_modes.add_argument("--hybrid", action="store_true")
     commands.add_parser("state", help="show evidence-backed project state")
+    handoff = commands.add_parser("handoff", help="show a compact evidence-linked handoff")
+    handoff.add_argument("--limit", type=int, default=6,
+                         help="maximum selected evidence items, 1–12")
     commands.add_parser("event", help="inspect one evidence record").add_argument("event_id")
     commands.add_parser("checkpoint", help="store an unconfirmed handoff checkpoint")
     commands.add_parser("serve", help="run the local stdio MCP server")
@@ -107,8 +145,35 @@ def main(argv: list[str] | None = None) -> int:
                 result = service.record_note(project_path, "claim", args.text, args.task_id)
             elif args.task_command == "confirm":
                 result = service.confirm_task(project_path, args.task_id)
+            elif args.task_command == "correct":
+                result = service.correct_task(project_path, args.task_id, args.to, args.reason)
+            elif args.task_command == "review":
+                result = service.task_review(project_path, args.task_id)
             else:
                 result = service.task_history(project_path, args.task_id)
+        elif args.command == "incident":
+            if args.incident_command == "open":
+                result = service.open_incident(project_path, args.error_event_id, args.cause)
+            elif args.incident_command == "list":
+                result = service.list_incidents(project_path)
+            elif args.incident_command == "show":
+                result = service.incident_history(project_path, args.incident_id)
+            elif args.incident_command == "attempt":
+                result = service.add_incident_attempt(
+                    project_path, args.incident_id, args.text, args.outcome
+                )
+            elif args.incident_command == "link-attempt":
+                result = service.link_incident_attempt(
+                    project_path, args.incident_id, args.attempt_event_id, args.outcome
+                )
+            elif args.incident_command == "resolve":
+                result = service.resolve_incident(
+                    project_path, args.incident_id, args.text, args.cause, args.test_event_id
+                )
+            else:
+                result = service.search_incidents(
+                    project_path, args.query, args.cause, args.limit
+                )
         elif args.command == "note":
             result = service.record_note(project_path, args.kind, args.text, args.task_id)
         elif args.command == "capture":
@@ -124,6 +189,8 @@ def main(argv: list[str] | None = None) -> int:
                                            hybrid=args.hybrid)
         elif args.command == "state":
             result = service.project_state(project_path)
+        elif args.command == "handoff":
+            result = service.project_handoff(project_path, args.limit)
         elif args.command == "event":
             result = service.get_event(project_path, args.event_id)
         else:

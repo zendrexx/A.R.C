@@ -8,13 +8,13 @@
 
 **Core Technology:** Local AI embeddings, persistent memory, Git and test evidence, and MCP integration
 
-**Development Team:** 2 developers
+**Development Team:** 1 implementation developer and 1 documentation/video lead
 
 **Primary Target Users:** Developers using AI coding assistants such as Codex, Claude Code, and Cursor
 
-**Project Status:** Phase 0 CLI and MCP prototype implemented; end-to-end validation still in progress
+**Project Status:** Phases 0–5 CLI/MCP prototype working; the Phase 5 incident-retrieval gate passed in controlled local-model tests; broader real-project validation remains in progress
 
-**Progress updated:** 2026-10-09. In Part 7, `[x]` means implemented and checked in code, an automated test, or a local smoke test. `[ ]` means still open; notes identify work that is only partly implemented. A phase is complete only when its completion gate passes.
+**Progress updated:** 2026-10-09. In Part 7, `[x]` means implemented and checked in code, an automated test, a local smoke test, or a clearly labelled user-reported trial. `[ ]` means still open; notes identify work that is only partly implemented. A phase is complete only when its completion gate passes.
 
 ---
 
@@ -748,9 +748,7 @@ The application must not assume it can access every private internal message, ev
 
 # PART 7 — DEVELOPMENT PHASES
 
-The recommended schedule is a 14-day implementation plan for two developers.
-
-If the actual hackathon window is shorter, complete the P0 milestones first and cut optional features.
+The original day numbers below show the intended implementation order, not a revised deadline. One developer now owns implementation, while the teammate owns documentation and video promotion. Re-estimate duration after the current Phase 3 gate; keep the phase acceptance criteria. If the hackathon window is shorter, complete the MVP gates before optional features.
 
 ## Phase 0 — Technical Feasibility and Scope
 
@@ -762,14 +760,14 @@ Prove that the essential technologies run on the available development computer.
 
 ### Tasks
 
-Developer 1:
+Local AI feasibility:
 - [x] Set up Python and Ollama.
 - [x] Download a local embedding model (`all-minilm`).
 - [x] Convert sample development records into embeddings.
 - [x] Retrieve a semantically similar record in local model and CLI tests.
-- [ ] Confirm that retrieval works with all networking disconnected. It passed with Ollama cloud features disabled, but a disconnected-network trial is still needed.
+- [x] Confirm that retrieval works with all networking disconnected. The user reported on 2026-10-09 that networking was off and `--semantic-only` returned semantic results; exact terminal output remains to be saved for demo evidence.
 
-Developer 2:
+Application and integration feasibility:
 - [x] Initialize the application repository and Python package.
 - [x] Create a local SQLite database.
 - [x] Test Git state and changed-path collection. The prototype records paths and fingerprints, not raw diffs.
@@ -787,7 +785,7 @@ Developer 2:
 
 A new coding session can request a stored record from the local MCP server. **Passed: user-confirmed fresh Codex-session retrieval on 2026-10-09.**
 
-An offline semantic search must return relevant results from previously indexed sample incidents. **Open: disconnected-network test.**
+An offline semantic search must return relevant results from previously indexed sample incidents. **Passed by user report on 2026-10-09; capture the exact command/output for presentation evidence.**
 
 ---
 
@@ -853,7 +851,7 @@ Make project history searchable by meaning.
 
 Given an unseen paraphrased query, local AI retrieves a relevant event that ordinary exact keyword matching misses. **Passed in a small predefined local-model evaluation:** semantic search ranked 4/5 expected incidents first versus 1/5 for keyword search; one dependency case ranked second. These synthetic results are an initial check, not general accuracy evidence.
 
-Results must remain available offline. **Open: disconnected-network trial.**
+Results must remain available offline. **Passed by user report on 2026-10-09; the output has not yet been archived as demo evidence.**
 
 ---
 
@@ -873,7 +871,7 @@ Separate claimed progress from evidence-backed progress.
 - [x] Attach actual configured test results to tasks.
 - [x] Detect missing or stale verification.
 - [x] Keep unsupported claims in an unverified state.
-- [ ] Allow the developer to confirm or correct task statuses. Explicit confirmation exists; correction/editing does not.
+- [x] Allow the developer to confirm or correct task statuses. `arc task correct` records an auditable downward correction; `arc task review` and `arc_get_task_review` show current evidence and missing checks. A correction cannot create passing-test or confirmed status.
 
 ### Deliverables
 
@@ -885,7 +883,7 @@ Separate claimed progress from evidence-backed progress.
 
 ### Completion Gate
 
-When an agent claims a feature is complete but no test evidence exists, A.R.C. does not incorrectly mark it verified. **Passed in an automated service test; the full Phase 3 interface is still open.**
+When an agent claims a feature is complete but no test evidence exists, A.R.C. does not incorrectly mark it verified. **Passed in service and MCP tests.** The CLI correction/review journey also passed in a temporary real Git repository on 2026-10-09. The Phase 3 CLI/MCP gate is complete; a graphical verification view remains a Phase 6 interface task.
 
 ---
 
@@ -901,11 +899,11 @@ Generate useful handoffs between development sessions.
 
 - [x] Identify tasks that are not currently confirmed in project state.
 - [x] Return recent recorded events and task history on request.
-- [ ] Select important design decisions for the handoff. Decision notes can be recorded but are not prioritized yet.
-- [ ] Select known failures and past attempts for the handoff. Error and attempt notes can be recorded but are not linked or prioritized yet.
-- [ ] Produce a relevance-ranked compact handoff. Current project state is a basic structured summary.
-- [x] Expose project state and history through the MCP server.
-- [ ] Test retrieval from a fresh Codex session.
+- [x] Prioritize recorded design decisions in a source-linked handoff.
+- [x] Select recorded errors, failed tests, and past attempts with explicit labels that do not infer resolution.
+- [x] Produce a bounded, relevance-ranked handoff with unfinished and confirmed tasks, current evidence references, session context, and a suggested next step. `arc handoff` reads recorded events without requiring an embedding run.
+- [x] Expose the handoff and existing project state/history through the MCP server. `arc_get_project_handoff` is read-only.
+- [x] Test retrieval from a fresh Codex session. A read-only 2026-10-09 trial called `arc_get_project_handoff` against the real `.arc/arc.sqlite3` database and returned task `ccd44503aac9`, its `tests_passed` state, Git/test references, and recorded decision/failure/attempt references without conversation context.
 
 ### Deliverables
 
@@ -917,6 +915,8 @@ Generate useful handoffs between development sessions.
 ### Completion Gate
 
 A completely new coding session retrieves the project's current task, verified work, and relevant prior context without manually pasting the previous conversation.
+
+**Passed on 2026-10-09:** The installed CLI and direct stdio MCP tests passed, and a fresh read-only Codex session retrieved the real project's unfinished Phase 4 task, a passing configured test at the then-current Git fingerprint, and source-linked decision/failure/attempt context. The developer later explicitly confirmed task `ccd44503aac9` (event `arc:event/02aae4fdc34044228a35bb460143b998`). Its current-state label may fall back after subsequent Git changes; the confirmation remains in history. The saved Codex MCP entry still points to the trial database; the real-project trial used a per-run database override.
 
 ---
 
@@ -930,12 +930,12 @@ Make previous debugging experience useful in new incidents.
 
 ### Tasks
 
-- [ ] Record debugging attempts and outcomes as a linked history. Basic `attempt` and `error` notes exist.
-- [ ] Connect failures to successful resolutions.
+- [x] Record debugging attempts and their explicit `failed`, `inconclusive`, or `helped` outcomes as a linked incident timeline. Existing attempt notes can also be linked.
+- [x] Connect an error note to an explicitly reported resolution and optional passing configured test. A passing test is labelled current or historical by Git fingerprint; it does not prove the specific error is fixed.
 - [x] Generate searchable representations of recorded error and attempt notes.
 - [x] Retrieve related recorded incidents using local embeddings in a small smoke test.
-- [ ] Distinguish similar errors with different causes.
-- [x] Show source references for retrieved records. Incident-specific evidence links remain open.
+- [x] Separate semantically similar incidents with explicitly different recorded causes; if the new cause is unknown, return inspect-only candidates.
+- [x] Show source references for the error, recorded cause, attempts, resolution, and linked test in incident history and search results.
 
 ### Deliverables
 
@@ -947,6 +947,8 @@ Make previous debugging experience useful in new incidents.
 ### Completion Gate
 
 A new error retrieves a meaningful, nonidentical earlier incident while unrelated examples are not incorrectly presented as confirmed matches.
+
+**Passed in a controlled local-model trial on 2026-10-09:** A paraphrase retrieved the earlier missing-table incident, a broader migration query separated a locked-database incident by its different recorded cause, and an unrelated authentication query returned no incident candidates. Results are always labelled candidates, never confirmed matches. The installed CLI and stdio MCP paths also passed. The 0.55 semantic cutoff and strict keyword fallback need wider calibration with real incidents in Phase 7.
 
 ---
 
@@ -994,8 +996,8 @@ Prove the application is useful, reliable, and genuinely local.
 ### Tasks
 
 - [ ] Test with real recorded project activity beyond the small CLI smoke test.
-- [ ] Test semantic retrieval with networking disconnected.
-- [ ] Test a new Codex-session handoff.
+- [x] Test semantic retrieval with networking disconnected. User-reported pass on 2026-10-09; a repeatable evidence capture remains open.
+- [x] Test a new Codex-session handoff for a real recorded task, passing test, and relevant context. Broader unfamiliar-user trials remain open.
 - [x] Test an unsupported completion claim in an automated service test. Broader adversarial testing remains open.
 - [ ] Measure retrieval accuracy and false matches on a labelled set.
 - [ ] Compare handoff quality against a README or Git-only baseline.
@@ -1019,9 +1021,9 @@ The main user journey succeeds repeatedly on the demo machine with no cloud depe
 
 ## Future expansion after Phase 7
 
-Phases 0–7 remain the current 14-day MVP roadmap. The following phases are **future work, not implemented**. They are ordered so automatic, trustworthy evidence exists before the chatbot and extension present it. Estimates are working days for the same two developers after the existing MVP gates; adjust them after measurement on the Mac M1 with 8GB unified memory.
+Phases 0–7 remain the current MVP roadmap. The following phases are **future work, not implemented**. They are ordered so automatic, trustworthy evidence exists before the chatbot and extension present it. The original estimates assumed parallel coding and must be re-estimated for one implementation developer after the MVP gates and measurement on the Mac M1 with 8GB unified memory.
 
-| Order | Future phase | Estimate | Dependency | User-visible milestone |
+| Order | Future phase | Original estimate | Dependency | User-visible milestone |
 |---|---|---:|---|---|
 | 1 | Phase 8 — Automatic observation | 2–3 days | Phase 1 recording and privacy rules | Meaningful file and Git activity appears without `arc capture` |
 | 2 | Phase 9 — Evidence and indexing | 2–3 days | Phase 8 event stream; Phase 2 embeddings | Supported test results and new memories are indexed without `arc index` |
@@ -1034,7 +1036,7 @@ Phases 0–7 remain the current 14-day MVP roadmap. The following phases are **f
 - Preserve the Phase 0 CLI, MCP tool names, evidence states, and `arc:event/<id>` references. Add a database migration and versioned API fields instead of changing their meaning.
 - Use one project-scoped service contract for CLI, MCP, the observation worker, and the extension. New operations should cover `observe.start/stop/status`, `activity.list`, `memory.search`, `chat.ask`, `checkpoint.get`, and `privacy.pause/resume` through local adapters. The exact transport can be finalized in Phase 8; the extension should use stdio to avoid a network service.
 - Give every automatic event a UTC timestamp, project ID, source type, stable deduplication key, optional session ID, Git fingerprint or commit when available, and resolvable evidence reference. Tag inferred summaries as interpretations, not observations.
-- Developer 1 owns indexing, retrieval, answer grounding, and model evaluation. Developer 2 owns collection, storage migration, controls, extension, and MCP compatibility. Both review contract and schema changes together.
+- The implementation developer owns indexing, retrieval, answer grounding, model evaluation, collection, storage migration, controls, extension, and MCP compatibility. Keep contract and schema changes small, migrated, and tested. The documentation/video lead records actual setup, validation, and demo results.
 
 ## Phase 8 — Automatic Project Observation (Future)
 
@@ -1046,7 +1048,7 @@ Collect useful local development activity without requiring a note or capture co
 
 ### Implementation order
 
-1. Developer 2 adds an opt-in `arc watch` worker for explicitly selected local Git repositories. Watch relevant file create/change/delete events and read Git HEAD/branch at startup, on changes, and at a low-frequency interval. The VS Code extension can later supervise the same worker while the workspace is active.
+1. Add an opt-in `arc watch` worker for explicitly selected local Git repositories. Watch relevant file create/change/delete events and read Git HEAD/branch at startup, on changes, and at a low-frequency interval. The VS Code extension can later supervise the same worker while the workspace is active.
 2. Add a persisted Git commit cursor so a restart can record commits made while the worker was not running. Consider an optional, non-destructive Git hook for faster commit notification, but do not rely on a hook as the only source. Edits outside VS Code are observable while the worker runs; commits are recoverable on restart.
 3. Coalesce save bursts, compare a safe path plus file metadata/content hash or Git state, and avoid duplicate observations from watcher and Git signals. Ignore generated directories and sensitive paths before an event or embedding is written. Store changed paths and evidence references, not complete source files.
 4. Record observation sessions and add pause, resume, and disable controls. Pausing establishes a new baseline when resumed so deliberately unrecorded activity is not silently imported. Keep the worker idle when no approved workspace is active.
@@ -1068,9 +1070,9 @@ Keep searchable memory current and attach trustworthy test and error evidence wh
 
 ### Implementation order
 
-1. Developer 2 extends the configured test runner and adds adapters for VS Code task process results or structured test reports where their command, exit status, and project snapshot can be identified. Supported editor diagnostics may be recorded as error observations, but their disappearance is not proof of a fix. Do not infer a test pass from terminal text, a file save, or a commit. If an external test is not observable through a supported adapter, report its status as unknown.
+1. Extend the configured test runner and add adapters for VS Code task process results or structured test reports where their command, exit status, and project snapshot can be identified. Supported editor diagnostics may be recorded as error observations, but their disappearance is not proof of a fix. Do not infer a test pass from terminal text, a file save, or a commit. If an external test is not observable through a supported adapter, report its status as unknown.
 2. Record failed test events and later passing results as separate facts. Link a proposed fix only when the change and relevant check can be associated; otherwise present a possible relationship that needs review. Keep an agent's progress statement separate from observed evidence.
-3. Developer 1 adds a bounded queue that embeds eligible new event summaries automatically with `all-minilm`, batches bursts, retries when Ollama is unavailable, and persists pending work across restarts. Keep FTS5 available if embeddings are delayed; show index freshness in status.
+3. Add a bounded queue that embeds eligible new event summaries automatically with `all-minilm`, batches bursts, retries when Ollama is unavailable, and persists pending work across restarts. Keep FTS5 available if embeddings are delayed; show index freshness in status.
 4. Add project, event-type, and time filters to retrieval. Combine keyword and semantic candidates with an explicit ranking policy and deduplicate their source references. Migrate old Phase 0 events without losing them.
 
 ### Milestone and acceptance
@@ -1090,8 +1092,8 @@ Answer questions about the project's history through local retrieval and `qwen3:
 
 ### Implementation order
 
-1. Developer 1 validates `qwen3:1.7b` on the actual M1 8GB machine and adds a local-only Ollama chat adapter. Pull the model during setup, use it only for chat requests, limit simultaneous generation to one request, and release it after idle time. Keep `all-minilm` as the retrieval model.
-2. Developer 2 adds deterministic SQLite queries for **today**, **yesterday**, a date range, task, error, fix, and chronological timeline. Store UTC timestamps and apply the selected local time zone when interpreting calendar words. A “why” answer needs a recorded rationale such as a decision, task note, or commit message; a diff alone cannot establish intent.
+1. Validate `qwen3:1.7b` on the actual M1 8GB machine and add a local-only Ollama chat adapter. Pull the model during setup, use it only for chat requests, limit simultaneous generation to one request, and release it after idle time. Keep `all-minilm` as the retrieval model.
+2. Add deterministic SQLite queries for **today**, **yesterday**, a date range, task, error, fix, and chronological timeline. Store UTC timestamps and apply the selected local time zone when interpreting calendar words. A “why” answer needs a recorded rationale such as a decision, task note, or commit message; a diff alone cannot establish intent.
 3. Retrieve a bounded set of source-linked events using filters, FTS5, and embeddings. For a long project timeline, walk time windows or milestones and summarize each with its references; support continuation or pagination if the whole period cannot be represented faithfully in one answer.
 4. Ask the model to answer only from retrieved evidence. Validate cited IDs against the retrieved set, distinguish observed facts from proposed reasons or fixes, and say when no recorded evidence supports an answer. Chat text cannot alter task verification status or run commands.
 
@@ -1111,10 +1113,10 @@ Give developers a clean, lightweight editor interface while keeping Python and S
 
 ### Implementation order
 
-1. Developer 2 creates a TypeScript extension with one A.R.C. view container and two sections: **A.R.C. Chat** for questions and cited answers, and **A.R.C. Memory** for captured activity, Git changes, tasks, verification, checkpoints, and timeline filters. Use native VS Code views where practical and a small webview only for the chat interaction.
+1. Create a TypeScript extension with one A.R.C. view container and two sections: **A.R.C. Chat** for questions and cited answers, and **A.R.C. Memory** for captured activity, Git changes, tasks, verification, checkpoints, and timeline filters. Use native VS Code views where practical and a small webview only for the chat interaction.
 2. Detect the active local workspace and handle no-workspace and multi-root cases explicitly. Ask for approval before first observation of each project; start or connect to the project-scoped Python worker over stdio, then stop it when the workspace closes. Show collector, index, Ollama, and pause states.
 3. Expose pause, resume, disable, search, checkpoint inspection, and evidence navigation. Use VS Code theme tokens, keyboard navigation, and clear timestamp and verification labels. Keep scripts and content local; escape recorded text before rendering it.
-4. Developer 1 stabilizes the query and chat response contract and measures cold-start and active memory use. Preserve the existing MCP server so coding agents can still request the same project evidence independently of the extension.
+4. Stabilize the query and chat response contract and measure cold-start and active memory use. Preserve the existing MCP server so coding agents can still request the same project evidence independently of the extension.
 
 ### Milestone and acceptance
 
@@ -1132,7 +1134,7 @@ Make automatic tracking, long-term chat, and the extension dependable on the act
 
 ### Implementation order
 
-1. Both developers run a full project session with saves, an outside-editor commit, a failing test, a fix, a passing test, restart, fresh MCP query, and chatbot questions. Repeat with networking disabled after dependencies and models are installed.
+1. Run a full project session with saves, an outside-editor commit, a failing test, a fix, a passing test, restart, fresh MCP query, and chatbot questions. Repeat with networking disabled after dependencies and models are installed. The documentation/video lead records the observed steps and results.
 2. Measure observer idle CPU/RAM, event and index queue growth, model load and chat memory, answer latency, missed/duplicate events, and SQLite size on the demo machine. Set final budgets from these measurements; keep the collector idle when inactive, batch embeddings, and unload chat after idle time. Avoid simultaneous large model work if it causes swapping.
 3. Evaluate a labelled history with correct and misleading questions. Count citation validity, date correctness, missing-evidence responses, retrieval quality, false completion claims, and privacy leaks. Fix the failures that threaten the main user journey.
 4. Document actual measurements and limits, including activities that cannot be observed outside an active worker or supported Git/test sources. Record a backup demo of the offline workflow.
@@ -1150,50 +1152,19 @@ On the Mac M1 8GB machine, a new developer can open a project in VS Code, have s
 
 # PART 8 — TEAM RESPONSIBILITIES
 
-The concrete phase-by-phase split, file ownership, branch workflow, shared interface, and commands for using the current prototype are in [TWO_DEVELOPER_WORKFLOW.md](TWO_DEVELOPER_WORKFLOW.md). Phase numbers are product milestones, not assignments to one developer. Start with Developer 1's Phase 2 evaluation and Phase 4 evidence selector in parallel with Developer 2's Phase 3 corrections and Phase 4 service/MCP wiring. Then split Phase 5 between incident matching and evidence links. Integrate at each completion gate; Phases 8–12 remain future work.
+The team has one implementation developer and one documentation/video lead. See [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md) for the current commands and implementation order, [DOCUMENTATION_AND_VIDEO.md](DOCUMENTATION_AND_VIDEO.md) for the teammate's deliverables, and [TEST_RESULTS.md](TEST_RESULTS.md) for actual results and missing evidence. Phases 8–12 remain future work.
 
-## Developer 1 — Local AI and Memory Infrastructure
+## Implementation developer
 
-**Primary ownership:**
+Own the application end to end: local embeddings and retrieval, Git/test evidence, SQLite and migrations, task verification, CLI, MCP, and future interface work. The Phase 3 correction/review, Phase 4 handoff, and controlled Phase 5 incident gates passed. Phase 6 product interface work is next; broader retrieval calibration remains a Phase 7 validation task. Run technical tests and provide the exact observed results to the documentation/video lead. Preserve source IDs and the distinction between claims and verified evidence.
 
-- Ollama and embedding integration
-- Memory indexing
-- Semantic retrieval
-- Incident similarity
-- Retrieval ranking
-- Search evaluation
-- Evidence-aware context selection
-- Optional local summarization
-- Offline AI verification
+## Documentation and video lead
 
-**Primary deliverable:** A reliable local intelligence engine that retrieves relevant project memory from recorded evidence.
+Own the README walkthrough, architecture explanation, setup and MCP instructions, test evidence log, known-limitations page, presentation slides, short promotion clip, and backup demonstration video. Reproduce the current user journey, record where instructions fail, and keep claims in screenshots and narration aligned with implemented features. The lead can record the user-reported offline trial now and capture its terminal output during a repeat demo; they should not label unbuilt automatic tracking, chat, or extension views as working.
 
-## Developer 2 — Agent Integration and Product
+## Shared demo checkpoint
 
-**Primary ownership:**
-
-- Project registration
-- Git and file-event collection
-- Test-run tracking
-- SQLite data models and application services
-- Task verification
-- MCP server
-- Dashboard and UX
-- Session checkpoint management
-- Integration and demonstration
-
-**Primary deliverable:** A usable application that collects trustworthy evidence and makes it available to coding agents.
-
-## Shared Responsibilities
-
-- Finalize interfaces between components.
-- Define event and checkpoint schemas.
-- Test the full workflow daily.
-- Protect sensitive information.
-- Conduct developer usability tests.
-- Prepare the final hackathon demonstration.
-
-Both developers should agree on shared data structures before working independently.
+Together, verify a real project session with changes, a configured test, local indexing and search, an evidence-linked checkpoint, and retrieval from a fresh agent session. Record actual command output and network conditions. The implementation developer fixes product failures; the documentation/video lead updates the explanation and video after the behavior is verified.
 
 ---
 

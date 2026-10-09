@@ -16,6 +16,9 @@ def test_new_agent_can_call_project_state_over_stdio(sample_repo, tmp_path):
         task = service.add_task(sample_repo, "Finish the login flow")
         work_session = service.start_session(sample_repo, "Login work")
         evidence = service.record_note(sample_repo, "note", "Started login work")
+        decision = service.record_note(sample_repo, "decision", "Keep sessions in SQLite", task["id"])
+        error = service.record_note(sample_repo, "error", "SQLite migration failed: users table missing")
+        incident = service.open_incident(sample_repo, error["id"], "users table absent")
     finally:
         service.close()
 
@@ -33,6 +36,11 @@ def test_new_agent_can_call_project_state_over_stdio(sample_repo, tmp_path):
                 assert "arc_get_project_state" in {tool.name for tool in tools.tools}
                 assert "arc_get_event" in {tool.name for tool in tools.tools}
                 assert "arc_get_session_history" in {tool.name for tool in tools.tools}
+                assert "arc_get_task_review" in {tool.name for tool in tools.tools}
+                assert "arc_get_project_handoff" in {tool.name for tool in tools.tools}
+                assert "arc_get_incident" in {tool.name for tool in tools.tools}
+                assert "arc_list_incidents" in {tool.name for tool in tools.tools}
+                assert "arc_search_incidents" in {tool.name for tool in tools.tools}
                 result = await session.call_tool("arc_get_project_state", {})
                 assert result.is_error is False
                 assert task["id"] in str(result)
@@ -41,11 +49,33 @@ def test_new_agent_can_call_project_state_over_stdio(sample_repo, tmp_path):
                 )
                 assert history.is_error is False
                 assert evidence["id"] in str(history)
+                handoff = await session.call_tool("arc_get_project_handoff", {})
+                assert handoff.is_error is False
+                assert task["id"] in str(handoff)
+                assert decision["source_ref"] in str(handoff)
+                review = await session.call_tool(
+                    "arc_get_task_review", {"task_id": task["id"]}
+                )
+                assert review.is_error is False
+                assert "current_passing_test" in str(review)
                 searched = await session.call_tool(
                     "arc_search_memory",
                     {"query": "login", "kind": "note", "keyword_only": True},
                 )
                 assert searched.is_error is False
                 assert evidence["id"] in str(searched)
+                incident_result = await session.call_tool(
+                    "arc_get_incident", {"incident_id": incident["id"]}
+                )
+                assert incident_result.is_error is False
+                assert error["source_ref"] in str(incident_result)
+                incident_list = await session.call_tool("arc_list_incidents", {})
+                assert incident_list.is_error is False
+                assert incident["id"] in str(incident_list)
+                incident_search = await session.call_tool(
+                    "arc_search_incidents", {"query": "SQLite migration users table"}
+                )
+                assert incident_search.is_error is False
+                assert incident["id"] in str(incident_search)
 
     asyncio.run(round_trip())

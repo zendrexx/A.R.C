@@ -31,3 +31,46 @@ def test_local_model_finds_a_paraphrased_incident(sample_repo, tmp_path):
         assert "sqlite migration" in result["hits"][0]["summary"].lower()
     finally:
         service.close()
+
+
+@pytest.mark.integration
+def test_local_incident_search_rejects_unrelated_and_separates_causes(sample_repo, tmp_path):
+    embedder = OllamaEmbedder()
+    try:
+        embedder.embed("A.R.C. incident search health check")
+    except EmbeddingUnavailable as error:
+        pytest.skip(str(error))
+    service = ArcService(tmp_path / "incidents.sqlite3", embedder)
+    try:
+        service.register_project(sample_repo)
+        missing = service.record_note(
+            sample_repo, "error", "SQLite migration failed because users table was missing"
+        )
+        locked = service.record_note(
+            sample_repo, "error", "SQLite migration failed because database file was locked"
+        )
+        first = service.open_incident(sample_repo, missing["id"], "missing users table")
+        second = service.open_incident(sample_repo, locked["id"], "locked database file")
+        service.resolve_incident(sample_repo, first["id"], "Create users table before migration")
+        service.index_memory(sample_repo)
+
+        result = service.search_incidents(
+            sample_repo, "Database upgrade crashed: missing users table during migration",
+            "missing users table",
+        )
+        assert result["mode"] == "semantic"
+        assert [item["incident_id"] for item in result["candidates"]] == [first["id"]]
+        broader = service.search_incidents(
+            sample_repo, "Database migration failed", "missing users table"
+        )
+        assert [item["incident_id"] for item in broader["different_causes"]] == [second["id"]]
+        assert all(item["match_status"] == "candidate_not_confirmed"
+                   for item in broader["candidates"] + broader["different_causes"])
+
+        unrelated = service.search_incidents(
+            sample_repo, "Authentication request returned 401 due to expired token"
+        )
+        assert unrelated["candidates"] == []
+        assert unrelated["different_causes"] == []
+    finally:
+        service.close()
