@@ -1,8 +1,4 @@
-"""Shared boundary for the memory and product tracks.
-
-Developer 1 owns embedding and retrieval behavior. Developer 2 owns evidence
-collection, persistence, and MCP/CLI. Keep these shapes stable across tracks.
-"""
+"""Stable data shapes shared by evidence collection and local retrieval."""
 
 from dataclasses import dataclass
 from pathlib import Path

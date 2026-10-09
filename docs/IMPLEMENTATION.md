@@ -14,29 +14,49 @@ The extension supervises a project worker, reports observer/index state, runs co
 
 Fingerprint calculation now excludes sensitive/generated paths before hashing. Existing test fingerprints or checkpoints from the old algorithm may become stale; rerun tests or create a new checkpoint to obtain current evidence. No old events are deleted.
 
+
 ## Current architecture
 
 ```text
 Explicit CLI action ──> ArcService ──> Git snapshot / configured test
                            │                    │
-                           └────────> SQLite projects, tasks, events, vectors, checkpoints
+                           └────────> SQLite projects, tasks, events, incidents, links,
+                                      vectors, checkpoints
                                                    │
                                      MemoryEngine + local Ollama /api/embed
                                                    │
                                       Search hits with source references
                                                    │
                                           stdio MCP tools for Codex
+
+Recorded events + current task evidence ──> bounded handoff selector
+                                              └──> arc handoff / read-only MCP tool
+
+Error event ──> incident ──> linked attempt outcomes / reported resolution / test
+                            └──> local error retrieval + explicit cause separation
+
+Browser on 127.0.0.1 ──> dashboard HTTP routes ──> the same ArcService and SQLite file
 ```
 
-The first integrated contract is `ArcService` in `arc/service.py`. It accepts an explicitly registered `Path` for each operation. `arc/contracts.py` defines `GitSnapshot` and `SearchHit`. The memory engine receives a `Store` and an `Embedder` protocol, so Developer 1 can evaluate models without changing project collection or MCP tools. `MemoryEngine.index_pending(project_id)` writes vectors keyed by event ID. `MemoryEngine.search(project_id, query)` supports project and event-type scoping, semantic-only and keyword-only queries, and opt-in hybrid ranking. It returns `{mode, hits}` plus indexed/pending counts and labels keyword fallback explicitly. The `SearchHit` shape and default cosine scoring are unchanged.
+The first integrated contract is `ArcService` in `arc/service.py`. It accepts an explicitly registered `Path` for each operation. `arc/contracts.py` defines `GitSnapshot` and `SearchHit`. The memory engine receives a `Store` and an `Embedder` protocol, so retrieval can be evaluated without changing project collection or MCP tools. `MemoryEngine.index_pending(project_id)` writes vectors keyed by event ID. `MemoryEngine.search(project_id, query)` supports project and event-type scoping, semantic-only and keyword-only queries, and opt-in hybrid ranking. It returns `{mode, hits}` plus indexed/pending counts and labels keyword fallback explicitly. The `SearchHit` shape and default cosine scoring are unchanged.
 
 Search indexes a Unicode- and whitespace-normalized copy of each summary; it does not rewrite the recorded evidence. Default search reports cosine-ranked embeddings and falls back to FTS5 if the local model or index is unavailable. `--semantic-only` requires the local model and reports a notice if records need indexing. `--keyword-only` reports keyword rank scores. `--hybrid` combines cosine and FTS5 ranks with reciprocal rank fusion; its score is a rank-fusion value, not a probability. Responses include `score_kind` so consumers can interpret each mode. Manual indexing remains available alongside the opt-in worker.
 
-SQLite tables are `projects`, `sessions`, `tasks`, `events`, `vectors`, `checkpoints`, and `event_fts`. Events include type, timestamp, source, source reference, optional task ID, optional session ID, Git head, fingerprint, and JSON details. Vectors store only selected event summaries; there is no source-file embedding. A.R.C. stores its SQLite file with mode `0600` on macOS. Opening an older Phase 0 database adds the nullable session ID column without assigning old events to a session.
+SQLite tables are `projects`, `sessions`, `tasks`, `events`, `incidents`, `incident_links`, `vectors`, `checkpoints`, `project_controls`, `observation_state`, and `event_fts`. Events include type, timestamp, source, source reference, optional task ID, optional session ID, Git head, fingerprint, JSON details, and an optional deduplication key enforced by a partial unique index. Incident rows identify their original error and explicitly recorded cause; links connect attempts, a reported resolution, and optional tests to their source events. Vectors store only selected event summaries; there is no source-file embedding. `project_controls` persists a project-scoped recording pause; `observation_state` persists the watch opt-in, commit cursor, worker pid/heartbeat, and observation-session reference. The database runs in WAL mode with a busy timeout so the watcher and CLI/MCP can share the file. A.R.C. stores its SQLite file with mode `0600` on macOS. Opening an older Phase 0 database adds the nullable session ID column without assigning old events to a session, adds the nullable `dedup_key` column, and creates later tables without rewriting old events.
 
 `arc session start`, `status`, `list`, `show`, and `end` manage one explicit active session per project. New notes, Git captures, test results, and confirmation events join that session while it is active. `arc state` exposes the active session and session IDs on recent events; `arc_get_session_history` exposes its records to MCP clients. Events recorded outside a session retain a null session ID. This does not start observation automatically.
 
 Every search hit has an event ID and source reference (`arc:event/<id>` or `git:commit/<hash>`). `arc event <id>` or the `arc_get_event` MCP tool retrieves that recorded evidence for inspection. `arc_get_timeline` exposes filtered, stable history pages.
+
+`ArcService.project_handoff()` reads the current Git fingerprint, task states, latest session (active or ended), and the newest 1,000 project events. `arc/handoff.py` ranks recorded decisions, errors/failed tests, attempts, reported resolutions, corrections, and progress, reserves room for important categories where available, and deduplicates repeated summaries. The response bounds task and evidence lists, reports total counts and whether its event window was truncated, and gives each selected item an `arc:event/<id>` reference and selection reason. A test or confirmation counts as current progress only at the present fingerprint; evidence invalidated by a task correction is excluded. The suggested next task is derived from verification state and recent activity and is labelled as a suggestion. This is deterministic selection over recorded evidence, not an LLM-generated narrative or automatic activity capture; it works without Ollama or indexing.
+
+`ArcService.open_incident()` starts from a project-scoped error event. Attempts record explicit `failed`, `inconclusive`, or `helped` outcomes; `link_incident_attempt()` can attach an existing attempt note. `resolve_incident()` stores an explicitly reported resolution and can attach a configured test only if it passed after the error at the current Git fingerprint. `incident_history()` labels that test current or historical as the project changes. A cause added at opening or resolution has its own source event. `search_incidents()` retrieves indexed error summaries through the local `all-minilm` engine, filters semantic scores below 0.55, and separates different explicitly recorded causes. A conservative keyword fallback requires two distinctive shared tokens. Results are always candidates, not confirmed diagnoses; the cutoff was checked on a small fixture and needs broader calibration.
+
+`arc/dashboard.py` serves a bundled vanilla JavaScript/CSS interface on `127.0.0.1` using Python's standard library. The UI reads the same service methods as CLI/MCP for project handoffs, source-linked search, task review, event timeline, checkpoints, and incidents. It never treats a claim or a retrieved incident as verified completion or diagnosis. Static assets are installed as package data. The browser uses DOM `textContent` to display recorded strings, and mutating HTTP routes require a per-server request token. The server checks the loopback Host header, sets a restrictive content policy, and does not expose CORS. The local model check runs only when requested; normal page loads do not start Ollama. The dashboard runs while its foreground `arc dashboard` terminal is open; it is not a watcher or background service.
+
+`arc/observe.py` is the Phase 8 opt-in worker, started by `arc watch` for the explicitly registered project. It polls `git ls-files -co --exclude-standard` plus `lstat` signatures, skips generated directories and the sensitive-path list before hashing, settles save bursts (default ~1.5 s), and writes one `file_change` event per stable content state with `dedup_key` `watch:file:<path>:<state>` — unchanged saves coalesce and replays deduplicate. It stores the path and a content hash, never file contents. A persisted commit cursor in `observation_state` recovers commits made while no worker ran (`git rev-list` when the cursor is an ancestor; otherwise a labelled "Git HEAD moved" observation instead of fake commits). Each run writes start/stop marker events and an "Automatic observation" session row that never occupies the active-session slot. `arc observe status|pause|resume|stop` and the MCP tool `arc_get_observation_status` expose the worker state. Pausing suspends collection; resuming rebaselines files and resets the cursor so deliberately unrecorded activity is not imported. A `file_change` or `commit` event carries `source='watcher'` and `task_id NULL`; it can never mark a task tested or confirmed.
+
+The pause control rejects new service-level notes, tasks, sessions, captures, tests, corrections, confirmations, incidents, and checkpoints for that project. Reading, ending an already active session, and indexing existing events remain possible. Memory deletion requires typing `DELETE <project name>` and removes that project's A.R.C. events, FTS rows, vectors, tasks, incidents, sessions, checkpoints, and pause setting in a transaction. Registration and source files remain. These controls affect the selected SQLite database only; set `ARC_DB` carefully before opening the dashboard.
 
 ## Evidence semantics
 
@@ -45,19 +65,19 @@ Every search hit has an event ID and source reference (`arc:event/<id>` or `git:
 - A configured test linked to a task records its exit code and the project fingerprint before and after the run. A changed project or nonzero exit does not count as a current passing test.
 - **Tests passed** means the named configured command passed at the current fingerprint. It does not prove the whole feature works.
 - **Completed/confirmed** requires the prior evidence and an explicit CLI confirmation. Confirmation is timestamped as another event. The displayed state falls back when the project fingerprint changes.
+- A correction to `planned` invalidates earlier linked observations, tests, and confirmations. A correction to `implementation_observed` retains one existing linked Git observation but requires a new passing test and confirmation. Both are `task_correction` events with a reason and `arc:event/<id>` source reference. Repeating `arc capture` at the unchanged corrected fingerprint cannot undo a `planned` correction.
+- `arc task review ID` and read-only MCP `arc_get_task_review` show the current Git fingerprint, evidence statuses, missing checks, and source references. A confirmation from an older fingerprint does not carry over when a new test passes on changed code.
 - A checkpoint is an unconfirmed candidate. The state response marks it stale once the current fingerprint differs.
 
 No raw source content is stored or uploaded. Explicit notes and captured test-output tails are redacted for common secret patterns, but the redactor is limited; do not record credentials. Git path filtering excludes common secret and database filenames. MCP responses are scoped to the configured project. Tools do not run tests or shell commands on an agent's request.
 
-## Two parallel tracks from this baseline
+## Work from this baseline
 
-**Developer 1:** Continue evaluating `arc/memory.py` with a broader labelled incident set. The first seven-record fixture and local comparison live in `tests/fixtures/retrieval_cases.json` and `scripts/evaluate_retrieval.py`. Check additional paraphrases, false matches, latency on the demo hardware, and physically disconnected operation. In parallel with Developer 2's Phase 3 work, build the Phase 4 evidence selector as a separate memory-side module after agreeing on its input/output fields. Developer 1 later owns Phase 5 incident matching, Phase 9 automatic indexing, Phase 10 grounded chat, and retrieval/model validation throughout Phases 6–12. Keep the `Embedder` and `MemoryEngine` method signatures stable.
+**Implementation:** Phase 6 dashboard views and local privacy controls are implemented. The unfamiliar-user completion trial and broader incident evaluation remain in Phase 7. The Phase 8 opt-in watcher (`arc watch`, `arc observe`) is implemented; the VS Code extension supervising it remains future work. Preserve evidence semantics, `arc/contracts.py` shapes, and existing MCP tool behavior while extending them.
 
-**Developer 2:** Improve collection and product flow in `arc/git_evidence.py`, `arc/store.py`, `arc/service.py`, `arc/cli.py`, and `arc/mcp_server.py`. The next step is to finish Phase 3 task correction and verification review, then feed recorded facts into Developer 1's Phase 4 selector and expose its evidence-linked handoff through service/MCP. Developer 2 later owns Phase 5 incident evidence links and the Phase 6 views. The permissioned file watcher belongs to future Phase 8, after the current MVP gates. Keep recorded facts separate from agent statements. Keep MCP tool names and result fields stable.
+**Documentation and video:** Follow [DOCUMENTATION_AND_VIDEO.md](DOCUMENTATION_AND_VIDEO.md). Validate the README on a clean terminal, record exact commands/results, explain current limitations, and prepare the promotion and backup demo videos from real behavior.
 
-**Shared checkpoint:** Run the same real repository through `init`, `task add`, `capture`, `test`, `index`, `search`, `checkpoint`, and MCP retrieval. Note actual results. Agree before changing `arc/contracts.py` or the SQLite schema.
-
-See [TWO_DEVELOPER_WORKFLOW.md](TWO_DEVELOPER_WORKFLOW.md) for the exact simultaneous branch split, current-use commands, and future-phase handoffs.
+**Integration checkpoint:** Run the same real repository through `init`, `task add`, `capture`, `test`, `index`, `search`, `checkpoint`, and MCP retrieval. Note actual results. See [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md) for current-use commands and implementation order.
 
 ## Phase 0 validation status
 
@@ -71,14 +91,19 @@ See [TWO_DEVELOPER_WORKFLOW.md](TWO_DEVELOPER_WORKFLOW.md) for the exact simulta
 | Explicit session grouping, MCP session history, and old-database migration | Passed in automated tests |
 | Local `all-minilm` generates an embedding | Passed; 384 values returned |
 | Paraphrased incident ranks above unrelated note | Passed in local model test and CLI smoke test; also passed with Ollama cloud features disabled |
-| Network physically disconnected during search | Not yet tested |
+| Network physically disconnected during semantic search | Passed by user report on 2026-10-09: networking off and `--semantic-only` returned semantic results; exact terminal output not yet saved in the evidence log |
 | Codex configured in a fresh session | Passed per user confirmation on 2026-10-09; recorded session `0f5c0c8e905a` was retrieved through MCP |
-| File watcher and dashboard | Not implemented yet |
+| File watcher | Implemented: `arc watch`/`arc observe` with dedup keys, commit cursor, sensitive-path filtering, and pause/resume baselines; covered by automated tests |
+| Phase 6 browser dashboard | Implemented and covered by two HTTP tests for project views, source evidence, authorization, pause, and scoped deletion; unfamiliar-user browser trial remains open |
+| Phase 3 task correction and verification review | Passed: service/MCP tests and installed CLI run in a temporary Git project; 16 automated tests passed on 2026-10-09 |
+| Phase 4 handoff selector and CLI/MCP tool | Passed: 18 automated tests; installed `arc handoff` smoke test in a temporary Git project returned an unfinished task plus decision/failure/attempt references |
+| Phase 4 fresh Codex retrieval | Passed for the real database: an ephemeral read-only session called `arc_get_project_handoff` and returned task `ccd44503aac9` with Git/test and decision/failure/attempt references. The developer later confirmed it at that Git fingerprint; the event remains historical after subsequent changes |
+| Phase 5 linked incident search | Passed: 22 automated tests, including a live `all-minilm` paraphrase, different-cause separation, unrelated-query rejection, and stdio MCP calls. Installed CLI smoke test created and searched a linked incident in a temporary Git project |
 
-These results are narrow checks of this Phase 0 slice, not claims that the full product or hackathon evaluation is complete.
+These are narrow checks of the current prototype, not claims that the full product or hackathon evaluation is complete.
 
 ## Phase 2 retrieval check
 
-Run `python -m scripts.evaluate_retrieval` with the local Ollama model available. The fixed synthetic set has seven events and five paraphrased questions. On 2026-10-09, the warm local model returned the expected event first for **4/5 semantic** and **4/5 hybrid** queries; FTS5 keyword search returned **1/5** first. Semantic and hybrid recall within three results was **5/5**. Median per-query latency in this small run was about 17 ms for semantic/hybrid search. The dependency-install question returned the related cache attempt first and the expected build failure second. An unrelated cooking question still returned a low-scoring candidate (cosine 0.131), so the engine must not treat every returned hit as a confirmed match. This is a small fixture, not a production accuracy claim. A physical offline run remains open.
+Run `python -m scripts.evaluate_retrieval` with the local Ollama model available. The fixed synthetic set has seven events and five paraphrased questions. On 2026-10-09, the warm local model returned the expected event first for **4/5 semantic** and **4/5 hybrid** queries; FTS5 keyword search returned **1/5** first. Semantic and hybrid recall within three results was **5/5**. Median per-query latency in this small run was about 17 ms for semantic/hybrid search. The dependency-install question returned the related cache attempt first and the expected build failure second. An unrelated cooking question still returned a low-scoring candidate (cosine 0.131), so the engine must not treat every returned hit as a confirmed match. This is a small fixture, not a production accuracy claim. The user reported a separate successful disconnected-network semantic search on 2026-10-09; its terminal output remains to be captured for the demo evidence log.
 
 The separate `first-test.sqlite3` database was indexed after the user's recorded session: three events indexed, and semantic, keyword, and hybrid search each retrieved its migration-error event with the same source reference. A direct MCP client call also retrieved that event using the new hybrid filter arguments.

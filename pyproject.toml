@@ -18,6 +18,9 @@ arc = "arc.cli:main"
 [tool.setuptools.packages.find]
 include = ["arc*"]
 
+[tool.setuptools.package-data]
+arc = ["ui/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["integration: requires a running local Ollama server and downloaded model"]

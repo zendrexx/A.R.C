@@ -35,6 +35,102 @@ def test_claim_is_not_verified_without_matching_evidence(sample_repo, tmp_path):
         service.close()
 
 
+def test_correction_downgrades_status_and_keeps_an_audit_trail(sample_repo, tmp_path):
+    database = tmp_path / "arc.sqlite3"
+    command = f"{shlex.quote(sys.executable)} -c \"print('pass')\""
+    service = ArcService(database)
+    try:
+        service.register_project(sample_repo, command)
+        task_id = service.add_task(sample_repo, "Build login")["id"]
+        session_id = service.start_session(sample_repo, "Review login")["id"]
+        (sample_repo / "app.py").write_text("print('login')\n")
+        change = service.capture_git(sample_repo, task_id)
+        old_test = service.run_test(sample_repo, task_id)
+        assert service.confirm_task(sample_repo, task_id)["state"] == "completed_confirmed"
+
+        corrected = service.correct_task(
+            sample_repo, task_id, "implementation_observed", "The earlier test missed a case"
+        )
+        assert corrected["state"] == "implementation_observed"
+        assert corrected["confirmed_by_user"] is False
+        assert corrected["implementation_event_ids"] == [change["id"]]
+        assert corrected["current_passing_test_event_ids"] == []
+        correction = service.get_event(sample_repo, corrected["latest_correction"]["id"])
+        assert correction["session_id"] == session_id
+        assert correction["source_ref"] == f"arc:event/{correction['id']}"
+        assert correction["details"]["reason"] == "The earlier test missed a case"
+
+        review = service.task_review(sample_repo, task_id)
+        assert review["requirements"]["observed_change"] is True
+        assert review["requirements"]["current_passing_test"] is False
+        assert f"arc test --task {task_id}" in review["missing"][0]
+        prior_test = next(item for item in review["recent_evidence"] if item["id"] == old_test["id"])
+        assert prior_test["counts_for_current_state"] is False
+        assert prior_test["evidence_status"] == "superseded_by_correction"
+        assert prior_test["source_ref"] == old_test["source_ref"]
+        with pytest.raises(ValueError, match="current passing test"):
+            service.confirm_task(sample_repo, task_id)
+
+        service.run_test(sample_repo, task_id)
+        assert service.project_state(sample_repo)["tasks"][0]["state"] == "tests_passed"
+        assert service.confirm_task(sample_repo, task_id)["state"] == "completed_confirmed"
+
+        planned = service.correct_task(sample_repo, task_id, "planned", "Work needs a redesign")
+        assert planned["state"] == "planned"
+        service.capture_git(sample_repo, task_id)
+        assert service.project_state(sample_repo)["tasks"][0]["state"] == "planned"
+        (sample_repo / "app.py").write_text("print('redesigned login')\n")
+        service.capture_git(sample_repo, task_id)
+        assert service.project_state(sample_repo)["tasks"][0]["state"] == "implementation_observed"
+    finally:
+        service.close()
+
+    reopened = ArcService(database)
+    try:
+        state = reopened.project_state(sample_repo)["tasks"][0]
+        assert state["state"] == "implementation_observed"
+        assert state["latest_correction"]["to_state"] == "planned"
+    finally:
+        reopened.close()
+
+
+def test_correction_cannot_invent_evidence_or_confirmation(sample_repo, tmp_path):
+    command = f"{shlex.quote(sys.executable)} -c \"print('pass')\""
+    service = ArcService(tmp_path / "arc.sqlite3")
+    try:
+        service.register_project(sample_repo, command)
+        task_id = service.add_task(sample_repo, "Build login")["id"]
+        with pytest.raises(ValueError, match="only set planned"):
+            service.correct_task(sample_repo, task_id, "tests_passed", "Looks ready")
+        with pytest.raises(ValueError, match="linked Git change"):
+            service.correct_task(sample_repo, task_id, "implementation_observed", "Looks done")
+        with pytest.raises(ValueError, match="needs a reason"):
+            service.correct_task(sample_repo, task_id, "planned", " ")
+        assert service.project_state(sample_repo)["tasks"][0]["state"] == "planned"
+    finally:
+        service.close()
+
+
+def test_new_test_does_not_reuse_confirmation_from_older_git_state(sample_repo, tmp_path):
+    command = f"{shlex.quote(sys.executable)} -c \"print('pass')\""
+    service = ArcService(tmp_path / "arc.sqlite3")
+    try:
+        service.register_project(sample_repo, command)
+        task_id = service.add_task(sample_repo, "Build login")["id"]
+        (sample_repo / "app.py").write_text("print('login')\n")
+        service.capture_git(sample_repo, task_id)
+        service.run_test(sample_repo, task_id)
+        assert service.confirm_task(sample_repo, task_id)["state"] == "completed_confirmed"
+        (sample_repo / "app.py").write_text("print('changed login')\n")
+        service.run_test(sample_repo, task_id)
+        updated = service.project_state(sample_repo)["tasks"][0]
+        assert updated["state"] == "tests_passed"
+        assert updated["confirmed_by_user"] is False
+        assert service.confirm_task(sample_repo, task_id)["state"] == "completed_confirmed"
+    finally:
+        service.close()
+
+
 def test_checkpoint_becomes_stale_after_project_change(sample_repo, tmp_path):
     service = ArcService(tmp_path / "arc.sqlite3")
     try:

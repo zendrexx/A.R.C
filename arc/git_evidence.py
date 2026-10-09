@@ -32,6 +32,35 @@ def _visible(path: str) -> bool:
                    for pattern in SENSITIVE_GLOBS)
 
 
+def current_head(root: Path) -> str:
+    return _git(root, "rev-parse", "HEAD", check=False).decode().strip() or "UNBORN"
+
+
+def current_branch(root: Path) -> str | None:
+    name = _git(root, "symbolic-ref", "--quiet", "--short", "HEAD",
+                check=False).decode().strip()
+    return name or None
+
+
+def is_ancestor(root: Path, older: str, newer: str) -> bool:
+    result = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", older, newer],
+        capture_output=True, check=False, timeout=20,
+    )
+    return result.returncode == 0
+
+
+def commits_between(root: Path, older: str, newer: str, limit: int = 200) -> list[str]:
+    out = _git(root, "rev-list", "--reverse", f"--max-count={limit}",
+               f"{older}..{newer}", check=False)
+    return [line.strip() for line in out.decode().splitlines() if line.strip()]
+
+
+def commit_subject(root: Path, sha: str) -> str:
+    return _git(root, "show", "-s", "--format=%s", sha,
+                check=False).decode("utf-8", "replace").strip()
+
+
 def snapshot(project_path: Path) -> GitSnapshot:
     root_text = _git(project_path, "rev-parse", "--show-toplevel").decode().strip()
     root = Path(root_text).resolve()

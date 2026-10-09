@@ -13,7 +13,10 @@ mcp = MCPServer(
     instructions=(
         "This server reports selected local project evidence. Agent claims are unverified; "
         "passing tests apply only to their recorded project fingerprint. Reinspect current files "
-        "before making changes. Checkpoint creation saves an unconfirmed candidate."
+        "before making changes. Use arc_get_project_handoff for a compact fresh-session view "
+        "and inspect its source references. Use arc_search_incidents for prior error candidates; "
+        "similarity and reported resolutions do not prove a shared cause or fix. "
+        "Checkpoint creation saves an unconfirmed candidate."
     ),
 )
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, open_world_hint=False)
@@ -35,6 +38,16 @@ def arc_get_project_state() -> dict:
     service, project = _service()
     try:
         return service.project_state(project)
+    finally:
+        service.close()
+
+
+@mcp.tool(annotations=READ_ONLY)
+def arc_get_project_handoff(evidence_limit: int = 6) -> dict:
+    """Get unfinished work and selected decisions, failures, and attempts with evidence IDs."""
+    service, project = _service()
+    try:
+        return service.project_handoff(project, evidence_limit)
     finally:
         service.close()
 
@@ -75,6 +88,16 @@ def arc_get_task_history(task_id: str) -> dict:
 
 
 @mcp.tool(annotations=READ_ONLY)
+def arc_get_task_review(task_id: str) -> dict:
+    """Review current task status, supporting evidence, and missing checks."""
+    service, project = _service()
+    try:
+        return service.task_review(project, task_id)
+    finally:
+        service.close()
+
+
+@mcp.tool(annotations=READ_ONLY)
 def arc_get_session_history(session_id: str) -> dict:
     """Get the time range and recorded evidence for one development session."""
     service, project = _service()
@@ -90,6 +113,47 @@ def arc_get_event(event_id: str) -> dict:
     service, project = _service()
     try:
         return service.get_event(project, event_id)
+    finally:
+        service.close()
+
+
+@mcp.tool(annotations=READ_ONLY)
+def arc_get_incident(incident_id: str) -> dict:
+    """Read an explicitly linked error, attempt, resolution, and test history."""
+    service, project = _service()
+    try:
+        return service.incident_history(project, incident_id)
+    finally:
+        service.close()
+
+
+@mcp.tool(annotations=READ_ONLY)
+def arc_list_incidents(limit: int = 20) -> list[dict]:
+    """List this project's recorded incidents with error source references."""
+    service, project = _service()
+    try:
+        return service.list_incidents(project, limit)
+    finally:
+        service.close()
+
+
+@mcp.tool(annotations=READ_ONLY)
+def arc_search_incidents(query: str, cause: str | None = None,
+                         limit: int = 5) -> dict:
+    """Find prior incident candidates; different recorded causes stay separate."""
+    service, project = _service()
+    try:
+        return service.search_incidents(project, query, cause, limit)
+    finally:
+        service.close()
+
+
+@mcp.tool(annotations=READ_ONLY)
+def arc_get_observation_status() -> dict:
+    """Get automatic observation state, worker heartbeat, and the Git commit cursor."""
+    service, project = _service()
+    try:
+        return service.observation_status(project)
     finally:
         service.close()
 

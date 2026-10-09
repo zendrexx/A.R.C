@@ -1,0 +1,44 @@
+{
+  "description": "Small labelled development-error set for Phase 7; all incidents are synthetic, not user project history.",
+  "incidents": [
+    {"key": "missing_table", "error": "SQLite migration failed because the users table does not exist", "cause": "users table absent"},
+    {"key": "database_locked", "error": "SQLite migration failed because the database file was locked by another writer", "cause": "concurrent database writer"},
+    {"key": "dependency", "error": "Package installation failed because the pinned library version has no compatible wheel", "cause": "unavailable dependency version"},
+    {"key": "json_config", "error": "Application startup failed while parsing settings JSON with a trailing comma", "cause": "malformed JSON configuration"},
+    {"key": "expired_token", "error": "API login returned HTTP 401 after the access token expired", "cause": "expired access token"},
+    {"key": "port_busy", "error": "Local dashboard server could not bind because TCP port 8765 is already in use", "cause": "port occupied"},
+    {"key": "test_syntax", "error": "Pytest collection stopped because test_handoff.py had an unclosed parenthesis", "cause": "Python test syntax error"},
+    {"key": "asset_missing", "error": "Installed dashboard showed a blank page because app.js was missing from package data", "cause": "static asset absent from wheel"},
+    {"key": "stale_test", "error": "Task test evidence became stale after a new Git commit changed the project fingerprint", "cause": "Git fingerprint changed"},
+    {"key": "model_missing", "error": "Semantic search failed because Ollama could not find the all-minilm embedding model", "cause": "embedding model not installed"}
+  ],
+  "positive_queries": [
+    {"key": "missing_table", "query": "Database schema upgrade crashed when it tried to read a nonexistent users relation"},
+    {"key": "database_locked", "query": "Migration could not write because another process held the SQLite file lock"},
+    {"key": "dependency", "query": "Installer cannot download a supported build of the required pinned package"},
+    {"key": "json_config", "query": "The app refuses to launch because the settings document contains invalid JSON punctuation"},
+    {"key": "expired_token", "query": "Authentication requests started failing after the bearer credential aged out"},
+    {"key": "port_busy", "query": "The browser interface cannot start because its local address is already taken"},
+    {"key": "test_syntax", "query": "Test discovery aborts on a missing closing bracket in a Python test file"},
+    {"key": "asset_missing", "query": "The installed web UI is empty since its JavaScript bundle was not included in the distribution"},
+    {"key": "stale_test", "query": "Why did a previously passing check stop counting after we committed code?"},
+    {"key": "model_missing", "query": "Meaning search cannot run because the local vector model has not been downloaded"}
+  ],
+  "negative_queries": [
+    "Webcam frame rate dropped while tracking a hand gesture",
+    "The recipe timer keeps ringing after it was reset",
+    "Audio playback is silent over the Bluetooth speaker",
+    "The printer jammed halfway through a document",
+    "A calendar reminder appeared in the wrong time zone",
+    "The monitor flickers when the HDMI cable moves",
+    "The mouse pointer freezes when the battery is low",
+    "A spreadsheet formula returned the wrong tax amount",
+    "The laptop fan is noisy during video editing",
+    "A presentation slide exported with blurry images",
+    "SQLite migration aborted because the disk ran out of free space",
+    "Login returned HTTP 401 because the account was disabled",
+    "Installed dashboard stayed blank because its content policy blocked scripts",
+    "Local search timed out because the Ollama service was stopped",
+    "Pytest failed an assertion in application logic"
+  ]
+}
