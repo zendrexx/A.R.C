@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 // Exercise activation and command lifecycles without pretending to certify VS Code visuals.
-function setup({trusted = true, names = ['one'], hook, saved = {}, observationApproval = true} = {}) {
+function setup({trusted = true, names = ['one'], hook, saved = {}, input = 'question', observationApproval = true} = {}) {
   const commands = new Map(); const errors = []; const instances = []; const messages = [];
   const folders = names.map(name => ({name, uri: {scheme: 'file', fsPath: path.resolve(name), toString: () => name}}));
   let choose = folders.length - 1; let provider; let memory; let onConfig; let receive;
@@ -36,7 +36,7 @@ function setup({trusted = true, names = ['one'], hook, saved = {}, observationAp
       showErrorMessage: message => {errors.push(message);},
       showInformationMessage: async (_, __, action) => action === 'Enable' && !observationApproval ? undefined : action,
       showQuickPick: async items => items[choose],
-      showInputBox: async () => 'question',
+      showInputBox: async () => input,
       showTextDocument: async () => {},
       registerTreeDataProvider: (_, view) => {memory = view; return disposable();},
       registerWebviewViewProvider: (_, view) => {provider = view; return disposable();}
@@ -155,6 +155,31 @@ test('disconnect discards an outstanding chat answer and clears its sources', as
   await tick();
   assert.deepEqual(app.messages.map(m => m.action), ['reset']);
   app.dispose();
+});
+test('create registers the workspace folder then connects it', async () => {
+  const seen = [];
+  const app = setup({names: ['new'], hook: (backend, args) => {seen.push(`${backend.project} ${args.join(' ')}`);}});
+  await app.commands.get('arc.create')();
+  const root = path.resolve('new');
+  assert.deepEqual(seen[0], `${root} init --test-command question`);
+  assert.equal(app.instances[0].disposed, true);
+  assert.equal(app.instances[1].project, root);
+  assert.equal(app.rows()[0].label, 'new');
+  app.dispose();
+});
+test('delete clears memory only after the typed project name', async () => {
+  const requests = [];
+  const app = setup({input: 'DELETE one', hook: (_, args) => {requests.push(args.join(' '));}});
+  await app.commands.get('arc.connect')();
+  await app.commands.get('arc.delete')();
+  assert.ok(requests.includes('delete DELETE one'));
+  app.dispose();
+  const blocked = [];
+  const wrong = setup({input: 'DELETE wrong', hook: (_, args) => {blocked.push(args.join(' '));}});
+  await wrong.commands.get('arc.connect')();
+  await wrong.commands.get('arc.delete')();
+  assert.ok(!blocked.some(args => args.startsWith('delete')));
+  wrong.dispose();
 });
 test('an approved saved project reconnects when the extension reopens', async () => {
   const project = path.resolve('one');

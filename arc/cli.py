@@ -28,6 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     init = commands.add_parser("init", help="register a Git project")
     init.add_argument("--test-command", help="approved executable and arguments, no shell syntax")
+    delete = commands.add_parser("delete", help="permanently delete a project's recorded memory")
+    delete.add_argument("confirmation", help='type "DELETE <project name>" to confirm')
 
     session = commands.add_parser("session", help="group recorded events into a work session")
     session_commands = session.add_subparsers(dest="session_command", required=True)
@@ -161,6 +163,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "init":
             result = service.register_project(project_path, args.test_command)
+        elif args.command == "delete":
+            result = service.clear_project_memory(project_path, args.confirmation)
         elif args.command == 'observer':
             from arc.observer import status, control, poll, launch, stop_worker
             if args.action == 'status':

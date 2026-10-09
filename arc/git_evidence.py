@@ -3,6 +3,7 @@
 import fnmatch
 import hashlib
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -16,10 +17,23 @@ GENERATED_DIRS = {'.git', '.arc', '.venv', 'node_modules', '__pycache__',
                   '.pytest_cache', 'out', 'build', 'dist'}
 
 
+def _git_bin() -> str:
+    found = shutil.which("git")
+    if found:
+        return found
+    for candidate in ("/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    raise ValueError("Git executable not found on PATH")
+
+
 def _git(root: Path, *args: str, check: bool = True) -> bytes:
-    result = subprocess.run(
-        ["git", "-C", str(root), *args], capture_output=True, check=False, timeout=20
-    )
+    try:
+        result = subprocess.run(
+            [_git_bin(), "-C", str(root), *args], capture_output=True, check=False, timeout=20
+        )
+    except FileNotFoundError:
+        raise ValueError("Git executable not found on PATH") from None
     if check and result.returncode != 0:
         raise ValueError(result.stderr.decode("utf-8", "replace").strip() or "Git failed")
     return result.stdout if result.returncode == 0 else b""
@@ -33,10 +47,13 @@ def _visible(path: str) -> bool:
 
 
 def is_ancestor(root: Path, older: str, newer: str) -> bool:
-    result = subprocess.run(
-        ["git", "-C", str(root), "merge-base", "--is-ancestor", older, newer],
-        capture_output=True, check=False, timeout=20,
-    )
+    try:
+        result = subprocess.run(
+            [_git_bin(), "-C", str(root), "merge-base", "--is-ancestor", older, newer],
+            capture_output=True, check=False, timeout=20,
+        )
+    except FileNotFoundError:
+        raise ValueError("Git executable not found on PATH") from None
     return result.returncode == 0
 
 

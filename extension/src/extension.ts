@@ -79,30 +79,36 @@ export function activate(context: vscode.ExtensionContext) {
       try { return await action(...args); } catch (error) { vscode.window.showErrorMessage(String(error instanceof Error ? error.message : error)); return false; }
     }));
   };
-  register('arc.connect', async () => {
-    if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before connecting A.R.C.');
+  const pickFolder = async (title: string) => {
     const folders = vscode.workspace.workspaceFolders?.filter(f => f.uri.scheme === 'file') ?? [];
     if (!folders.length) throw new Error('Open a local project folder first.');
-    const choice = folders.length === 1 ? folders[0] : (await vscode.window.showQuickPick(folders.map(folder => ({label: folder.name, description: folder.uri.fsPath, folder})), {title: 'Choose the A.R.C. project'}))?.folder;
-    if (!choice) return;
-    const approved = context.workspaceState.get<string[]>('approvedProjects', []);
-    if (!approved.includes(choice.uri.fsPath)) {
-      const answer = await vscode.window.showInformationMessage(`Connect A.R.C. to ${choice.name}? It reads local Git metadata and stored memory. Automatic observation is a separate opt-in command.`, {modal: true}, 'Connect');
-      if (answer !== 'Connect') return;
-      await context.workspaceState.update('approvedProjects', [...approved, choice.uri.fsPath]);
-    }
-    disconnect(); selected = choice;
+    return folders.length === 1 ? folders[0] : (await vscode.window.showQuickPick(folders.map(folder => ({label: folder.name, description: folder.uri.fsPath, folder})), {title}))?.folder;
+  };
+  const backendFor = (folder: vscode.WorkspaceFolder) => {
     const config = vscode.workspace.getConfiguration('arc');
-    const localPython = path.join(choice.uri.fsPath, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+    const localPython = path.join(folder.uri.fsPath, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
     const python = config.get<string>('pythonPath') || (existsSync(localPython) ? localPython : process.platform === 'win32' ? 'python' : 'python3');
     const database = config.get<string>('databasePath') || '';
     if (database && !path.isAbsolute(database)) throw new Error('A.R.C. databasePath must be absolute.');
-    backend = new Backend(python, choice.uri.fsPath, database);
+    return new Backend(python, folder.uri.fsPath, database);
+  };
+  const approve = async (choice: vscode.WorkspaceFolder, message: string, action: string) => {
+    const approved = context.workspaceState.get<string[]>('approvedProjects', []);
+    if (approved.includes(choice.uri.fsPath)) return true;
+    const answer = await vscode.window.showInformationMessage(message, {modal: true}, action);
+    if (answer !== action) return false;
+    await context.workspaceState.update('approvedProjects', [...approved, choice.uri.fsPath]);
+    return true;
+  };
+  const connectTo = async (choice: vscode.WorkspaceFolder) => {
+    if (!await approve(choice, `Connect A.R.C. to ${choice.name}? It reads local Git metadata and stored memory. Automatic observation is a separate opt-in command.`, 'Connect')) return;
+    disconnect(); selected = choice;
+    backend = backendFor(choice);
     const connected = backend; const connectToken = generation;
     try { await refresh(); } catch (error) {
       if (connectToken !== generation) return;
       connected.dispose(); backend = undefined; selected = undefined;
-      memory.set([{label: 'Could not load project', description: 'Check Python, database and arc init'}, {label: String(error)}]);
+      memory.set([{label: 'Could not load project', description: 'Check Python and database; run A.R.C.: Create Project to register'}, {label: String(error)}]);
       status.text = '$(warning) A.R.C.: connection error'; throw error;
     }
     if (connectToken !== generation) return;
@@ -118,6 +124,38 @@ export function activate(context: vscode.ExtensionContext) {
       finally {refreshPending = false;}
     }, 10000);
     await refresh();
+  };
+  register('arc.connect', async () => {
+    if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before connecting A.R.C.');
+    const choice = await pickFolder('Choose the A.R.C. project');
+    if (choice) await connectTo(choice);
+  });
+  register('arc.create', async () => {
+    if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before creating an A.R.C. project.');
+    const choice = await pickFolder('Choose the project folder to register');
+    if (!choice) return;
+    if (!await approve(choice, `Create an A.R.C. project for ${choice.name}? Registration reads local Git metadata. Automatic observation is a separate opt-in command.`, 'Create')) return;
+    const testCommand = await vscode.window.showInputBox({title: 'Test command for A.R.C.: Run Configured Test (optional)', prompt: 'Approved executable and arguments, no shell syntax. Leave empty to skip.'});
+    if (testCommand === undefined) return;
+    const setup = backendFor(choice);
+    try {
+      await setup.request(['init', ...(testCommand.trim() ? ['--test-command', testCommand.trim()] : [])]);
+    } finally { setup.dispose(); }
+    await connectTo(choice);
+  });
+  register('arc.delete', async () => {
+    const current = requireBackend();
+    if (!selected) throw new Error('Connect a project first.');
+    const expected = `DELETE ${selected.name}`;
+    const confirmation = await vscode.window.showInputBox({
+      title: `Permanently delete A.R.C. memory for ${selected.name}?`,
+      prompt: `Events, tasks, sessions, incidents, checkpoints and embeddings are removed; registration and source files remain. Type ${expected} to continue.`,
+      validateInput: value => value === expected ? undefined : `Type ${expected} to confirm.`
+    });
+    if (confirmation !== expected || current !== backend) return;
+    const result = await current.request(['delete', confirmation]);
+    await inspectFor(current, result);
+    if (current === backend) await refresh();
   });
   register('arc.refresh', refresh);
   register('arc.createProject', async () => {
