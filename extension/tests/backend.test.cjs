@@ -39,8 +39,8 @@ test('observer is workspace scoped and disposed with the connection', () => {
 });
 test('status shows paused collection and pending records', () => {
   const rows = memoryRows({project:{name:'Example',path:'/example'},git:{changed_paths:[]},tasks:[],recent_events:[],observer:{enabled:true,paused:true,running:true},index:{indexed_records:4,pending_records:3}});
-  assert.equal(rows[0].children[2].label, 'Collection: paused');
-  assert.equal(rows[0].children[3].label, 'Index: 4 indexed · 3 pending');
+  assert.ok(rows[0].children.some(row => row.label === 'Collection: paused'));
+  assert.ok(rows[0].children.some(row => row.label === 'Index: 4 indexed · 3 pending'));
 });
 test('pause controls remain available during an active chat request', async () => {
   const saved = cp.execFile; const callbacks = [];
@@ -61,5 +61,5 @@ test('display preserves evidence IDs and unverified status', () => {
   assert.equal(rows[1].children[0].description, 'implementation observed');
   assert.match(rows[1].children[0].children[0].label, /Unverified claim/);
   assert.equal(rows[1].children[0].children[2].eventId, 'git-1');
-  assert.match(rows[4].children[0].description, /Stale.*unconfirmed/);
+  assert.match(rows.find(row => row.label === 'Latest checkpoint').children[0].description, /Stale.*unconfirmed/);
 });

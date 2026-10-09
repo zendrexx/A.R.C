@@ -25,6 +25,7 @@ function setup({trusted = true, names = ['one'], hook, saved = {}, input = 'ques
     }
     startObserver() {this.observing = true;}
     stopObserver() {this.observing = false;}
+    closeWorkspace(owner) {this.closedOwner = owner;}
     dispose() {this.disposed = true; this.stopObserver();}
   }
   const disposable = () => ({dispose(){}});
@@ -190,6 +191,45 @@ test('an approved saved project reconnects when the extension reopens', async ()
   assert.equal(app.rows()[0].label, 'one');
   assert.equal(app.errors.length, 0);
   app.dispose();
+});
+
+test('approved editor connection opens one session, shows a cited handoff, and closes it', async () => {
+  const calls = [];
+  const app = setup({hook: (_, args) => {
+    calls.push(args);
+    if (args[0] === 'handoff') return {overview:'One unfinished task', previous_session:{session:{label:'Earlier work'},total_events:1,recent_evidence:[{id:'e-1',summary:'Recorded decision',kind:'decision'}]},key_evidence:[]};
+  }});
+  await app.commands.get('arc.connect')();
+  const opened = calls.find(args => args[0] === 'workspace' && args[1] === 'open');
+  assert.match(opened[2], /^[0-9a-f]{32}$/);
+  assert.equal(opened[3], '--pid');
+  const handoff = app.rows().find(row => row.label === 'Handoff');
+  assert.equal(handoff.children.find(row => row.label.startsWith('Previous session')).children[0].eventId, 'e-1');
+  await app.commands.get('arc.disconnect')();
+  assert.equal(app.instances[0].closedOwner, opened[2]);
+  app.dispose();
+});
+
+test('saved project restores directly in a multi-root workspace', async () => {
+  const project = path.resolve('one');
+  const app = setup({names:['one','two'], saved:{selectedProject:project,approvedProjects:[project]}});
+  await tick();
+  assert.equal(app.instances[0].project, project);
+  assert.equal(app.rows()[0].label, 'one');
+  app.dispose();
+});
+
+test('existing project database is reused on editor connect', async () => {
+  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'arc-extension-'));
+  try {
+    fs.mkdirSync(path.join(root, '.git'));
+    fs.mkdirSync(path.join(root, '.arc'));
+    fs.writeFileSync(path.join(root, '.arc', 'arc.sqlite3'), '');
+    const app = setup({names:[root]});
+    await app.commands.get('arc.connect')();
+    assert.equal(app.instances[0].database, path.join(root, '.arc', 'arc.sqlite3'));
+    app.dispose();
+  } finally {fs.rmSync(root, {recursive:true, force:true});}
 });
 
 test('chat cards show newest evidence first with separate date, 12-hour time and file rows', () => {

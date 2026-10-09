@@ -25,6 +25,25 @@ Everything A.R.C. records lives in a local SQLite database. Git observation stor
 
 The current chat can write a model-generated introduction. One [live Phase 12 answer](docs/PHASE_12_VALIDATION.md#phase-1112-validation-rerun--2026-10-10) cited the right decision but added reasons absent from that record, so a valid citation alone does not establish that all of the model's wording is supported.
 
+## Planned: zero-friction automatic development memory
+
+The next goal is to make A.R.C. useful during ordinary VS Code work without a routine sequence of CLI commands:
+
+**Open a project → Work normally → Leave → Return → Recover the evidence-backed context.**
+
+After a developer approves a project, the intended behavior is:
+
+1. **Open and restore.** Detect the Git root, reuse the same local SQLite database across VS Code restarts, restore unfinished work, and show a fresh handoff in the sidebar. Multiple roots and windows must remain isolated.
+2. **Observe meaningful work.** Coalesce file creations, edits, renames, deletions, Git commits, branch changes, and eligible status changes into source-linked events. Record test results only through an explicitly configured or supported integration. Never treat a file change or an agent's claim as proof that a task is complete.
+3. **Manage sessions automatically.** Start a session when appropriate, save periodic progress, detect inactivity, finalize on normal exit when possible, and recover after an unexpected shutdown. Closing VS Code must not be the only chance to preserve a session boundary.
+4. **Prepare the next handoff.** Summarize the previous session, commits and paths, unfinished tasks, decisions, test outcomes, stale evidence, current Git state, and supported next steps with inspectable event references. This must work without Ollama and refresh as new evidence arrives.
+5. **Keep memory available.** Queue new summaries for local embeddings, retry indexing when Ollama returns, and continue recording while it is unavailable. Expose the same handoff through the existing MCP server. An agent can request it at startup where supported; automatic injection into a conversation must be verified for that agent before it is claimed.
+6. **Stay quiet and controlled.** Put Overview, Timeline, Handoff, and Ask A.R.C. in the sidebar. Avoid keystroke logging, file bodies, secrets, source uploads, cloud telemetry, unapproved test execution, and excessive CPU or database writes. Keep project approval, privacy exclusions, pause controls, and evidence verification intact.
+
+The acceptance checks include reopening the same project memory, capturing a change without `arc capture`, limiting duplicate events from rapid saves, recovering after a crash, producing an offline handoff, retrieving it in a fresh MCP session, keeping changed-code confirmations historical, protecting multiple windows, and excluding sensitive or ignored paths.
+
+**Current status:** after a one-time project approval, the extension opens a shared automatic session per project, renews it while a window is connected, ends it when the last window closes, and recovers the boundary after an extension-host crash on the next open. The sidebar shows a Handoff section built from the previous session's recorded evidence and the last test's freshness; it works without Ollama. Automatic Git observation, change-type/branch records, `.arcignore` exclusions, and background indexing exist after explicit opt-in, and a new agent can request the same handoff through MCP. Still unverified: the automatic open/touch/close loop inside a real VS Code host (tests stub the backend), agent-side startup retrieval by Codex, and the Phase 12 offline/resource gates. See [Phase 13](docs/DEVELOPMENT_PLAN.md#phase-13--zero-friction-automation-implemented-editor-validation-open) and [TEST_RESULTS.md](docs/TEST_RESULTS.md). The manual commands below remain a supported path.
+
 ## Set up on macOS
 
 Use macOS 14+, Python 3.11+, and Git. The CLI and dashboard use Python; semantic search needs a running local [Ollama](https://ollama.com/) server with `all-minilm`. Model-assisted chat and the VS Code Chat view also need `qwen3:1.7b`. VS Code 1.90+ and Node.js/npm are needed only for the extension. The project is being validated on an M1 Mac with 8 GB of memory; that is a test target, not a proven minimum. The first package install and model downloads need internet.
@@ -79,6 +98,37 @@ arc session end
 ```
 
 Use your actual decision in the note. `arc capture` records paths and a Git fingerprint, including eligible uncommitted work; it does not save source code. `arc test` records the configured command, exit code, fingerprint, and a redacted output tail. `arc handoff` works directly from SQLite without indexing or Ollama. If Ollama is unavailable, `arc search "query" --keyword-only` and `arc chat "question" --keyword-only` still show recorded keyword evidence. Model-assisted chat requires the local chat model even when the question is about the timeline.
+
+## Hand off work to the next session
+
+**Before you stop:** give unfinished work a task and record the details a future session will need. Run this from the registered Git project with the same `ARC_DB` used during setup:
+
+```bash
+arc session start "Login work"
+task_id="$(arc task add "Finish login validation" | python -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+arc note --kind decision --task "$task_id" "Use the existing auth service because it already handles tokens"
+# After an actual code change:
+arc capture --task "$task_id"
+arc test --task "$task_id"               # if a test command was configured
+arc task review "$task_id"
+arc session end
+```
+
+Only enter decisions and progress that actually happened. If the task has no code change or passing test yet, leave it planned; it will still appear as unfinished. Ending the session preserves its record and does not mark the task complete.
+
+**When you return:** open the same repository, activate the environment, and point to the same database. Replace `TASK_ID` and `EVENT_ID` below with IDs from the handoff; for a source reference such as `arc:event/abc123`, pass just `abc123` to `arc event`:
+
+```bash
+source .venv/bin/activate
+export ARC_DB="$PWD/.arc/arc.sqlite3"   # use the path from your original setup
+arc handoff
+arc task review TASK_ID                  # inspect an unfinished task from the handoff
+arc event EVENT_ID                       # inspect a cited arc:event/EVENT_ID
+```
+
+The handoff shows `suggested_next_task`, `unfinished_tasks`, `confirmed_tasks`, `latest_session`, and `key_evidence`. Its suggested task is based on recorded state, so review the source events and current files before continuing. To include more selected events, use `arc handoff --limit 10` (maximum 12). The handoff reads current Git and SQLite state each time; `arc checkpoint` is optional if you also want to save an unconfirmed snapshot. Ollama and `arc index` are not needed for `arc handoff`. For another registered repository, keep the same absolute database path and add `--project /absolute/path/to/repository` before each CLI command.
+
+**With Codex:** after [connecting the MCP server](#give-a-new-codex-session-the-handoff), start a new Codex session and ask: “Call `arc_get_project_handoff`, then inspect the relevant `arc:event/...` references. What is unfinished, what is currently verified, and what should I check next?” The agent can call `arc_get_event` for a cited record and `arc_get_task_review` for a task. It must still inspect current project files before making changes.
 
 ## Open the web dashboard
 

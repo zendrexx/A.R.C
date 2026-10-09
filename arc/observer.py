@@ -5,10 +5,11 @@ import sqlite3
 import subprocess
 import sys
 import time
+from uuid import uuid4
 from datetime import datetime, timezone
 from pathlib import Path
 
-from arc.git_evidence import _git, _visible, is_ancestor, snapshot
+from arc.git_evidence import _git, _visible, branch_name, changed_file_statuses, exclusion_globs, is_ancestor, snapshot
 from arc.memory import EmbeddingUnavailable, redact
 from arc.store import utc_now
 
@@ -42,6 +43,7 @@ def control(service, path: Path, action: str) -> dict:
         raise ValueError('Unknown observer action')
     project = service._project(path)
     observed = snapshot(path)
+    branch = branch_name(observed.root)
     db = service.store.connection
     db.execute('BEGIN IMMEDIATE')
     current = status(service, path)
@@ -52,14 +54,15 @@ def control(service, path: Path, action: str) -> dict:
     baseline = (action in {'resume', 'disable'} or not current.get('fingerprint')
                 or (action == 'enable' and (not current['enabled'] or current['paused'])))
     db.execute('''INSERT INTO observer_state
-        (project_id, enabled, paused, fingerprint, head, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        (project_id, enabled, paused, fingerprint, head, branch, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(project_id) DO UPDATE SET enabled=excluded.enabled,
         paused=excluded.paused, fingerprint=excluded.fingerprint,
-        head=excluded.head, updated_at=excluded.updated_at''',
+        head=excluded.head, branch=excluded.branch, updated_at=excluded.updated_at''',
         (project['id'], action != 'disable', action == 'pause',
          observed.fingerprint if baseline else current.get('fingerprint'),
-         observed.head if baseline else current.get('head'), utc_now()))
+         observed.head if baseline else current.get('head'),
+         branch if baseline else current.get('branch'), utc_now()))
     db.commit()
     return status(service, path)
 
@@ -69,6 +72,9 @@ def poll(service, path: Path) -> list[dict]:
     if not baseline['enabled'] or baseline['paused']:
         return []
     observed = snapshot(path)
+    branch = branch_name(observed.root)
+    file_statuses = changed_file_statuses(observed.root) if observed.changed_paths else []
+    extra_globs = exclusion_globs(observed.root)
     commits = []
     metadata = []
     cursor = baseline.get('head')
@@ -81,7 +87,7 @@ def poll(service, path: Path) -> list[dict]:
             commits = _git(path, 'rev-list', '--reverse', spec, check=False).decode().splitlines()[:100]
             for head in commits:
                 paths = _git(path, 'diff-tree', '--root', '--no-commit-id', '--name-only', '-r', '-z', head).decode('utf-8', 'replace').split('\0')
-                visible = sorted(p for p in paths if p and _visible(p))
+                visible = sorted(p for p in paths if p and _visible(p, extra_globs))
                 if not visible:
                     continue
                 text = _git(path, 'show', '-s', '--format=%cI%n%s', head).decode('utf-8', 'replace')
@@ -96,10 +102,16 @@ def poll(service, path: Path) -> list[dict]:
         if not current['enabled'] or current['paused']:
             db.rollback()
             return []
-        if (current['fingerprint'], current['head']) != (baseline.get('fingerprint'), baseline.get('head')):
+        if (current['fingerprint'], current['head'], current.get('branch')) != (baseline.get('fingerprint'), baseline.get('head'), baseline.get('branch')):
             db.rollback()
             return []
         events = []
+        if branch != current.get('branch'):
+            events.append(service.store.add_event(current['project_id'], 'git',
+                f'Git branch: {redact(current.get("branch") or "unknown")} → {redact(branch)}',
+                'observer', 'auto', git_head=observed.head,
+                details={'previous_branch': current.get('branch'), 'branch': branch,
+                         'has_visible_changes': False}, commit=False))
         if observed.fingerprint != current['fingerprint']:
             for head, visible, message, timestamp in metadata:
                 ref = f'git:commit/{head}'
@@ -115,12 +127,16 @@ def poll(service, path: Path) -> list[dict]:
                     'Observed Git changes: ' + (', '.join(observed.changed_paths[:30]) or 'working tree clean'),
                     'observer', 'auto', git_head=observed.head, fingerprint=observed.fingerprint,
                     details={'changed_paths': list(observed.changed_paths),
+                             'changed_files': file_statuses,
                              'has_visible_changes': bool(observed.changed_paths)}, commit=False))
             # Keep cursor behind if more than one bounded commit page remains.
             head = commits[-1] if len(commits) == 100 else observed.head
             fingerprint = current['fingerprint'] if head != observed.head else observed.fingerprint
-            db.execute('UPDATE observer_state SET fingerprint=?, head=?, updated_at=? WHERE project_id=?',
-                       (fingerprint, head, utc_now(), current['project_id']))
+            db.execute('UPDATE observer_state SET fingerprint=?, head=?, branch=?, updated_at=? WHERE project_id=?',
+                       (fingerprint, head, branch, utc_now(), current['project_id']))
+        elif branch != current.get('branch'):
+            db.execute('UPDATE observer_state SET branch=?, updated_at=? WHERE project_id=?',
+                       (branch, utc_now(), current['project_id']))
         db.commit()
         return events
     except BaseException:
@@ -188,16 +204,14 @@ def watch(service, path: Path, interval: float = 5) -> None:
         return
     db = service.store.connection
     pid = os.getpid()
+    owner_id = uuid4().hex
+    service.workspace_open(path, owner_id, pid)
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGTERM, lambda _signum, _frame: (_ for _ in ()).throw(SystemExit(0)))
     db.execute('UPDATE observer_state SET worker_pid=? WHERE project_id=?',
                (pid, state['project_id']))
     db.commit()
     try:
-        if not service.active_session(path):
-            try:
-                service.start_session(path, 'Automatic observation')
-            except ValueError:
-                if not service.active_session(path):
-                    raise
         while True:
             state = status(service, path)
             if not state['enabled']:
@@ -215,8 +229,18 @@ def watch(service, path: Path, interval: float = 5) -> None:
                     except EmbeddingUnavailable:
                         pass
                     next_index = time.monotonic() + 30
+            try:
+                service.workspace_touch(path, owner_id)
+            except ValueError as error:
+                if 'expired' not in str(error):
+                    raise
+                service.workspace_open(path, owner_id, pid)
             time.sleep(max(1, interval))
     finally:
-        db.execute('UPDATE observer_state SET worker_pid=NULL '
-                   'WHERE project_id=? AND worker_pid=?', (state['project_id'], pid))
-        db.commit()
+        signal.signal(signal.SIGTERM, previous_sigterm)
+        try:
+            service.workspace_close(path, owner_id)
+        finally:
+            db.execute('UPDATE observer_state SET worker_pid=NULL '
+                       'WHERE project_id=? AND worker_pid=?', (state['project_id'], pid))
+            db.commit()

@@ -1174,6 +1174,36 @@ On the Mac M1 8GB machine, a new developer can open a project in VS Code, have s
 
 ---
 
+## Phase 13 — Zero-Friction Automation (Implemented; Editor Validation Open)
+
+**Target: 2–3 working days after Phase 11**
+
+### Objective
+
+Make A.R.C. record and restore development memory during ordinary VS Code use without a routine sequence of CLI commands: **open a project → work normally → leave → return → recover the evidence-backed context.** Manual `arc session`, `arc capture`, and `arc handoff` commands remain available but are no longer required for the default loop.
+
+### Milestones
+
+1. **Automatic startup and stable database discovery.** On connect, the extension resolves the Git root, reuses the project's existing `.arc/arc.sqlite3` (found by walking up from the workspace folder, or via `arc.databasePath`/`ARC_DB`), and restores the same project memory across restarts. Approved single-folder and multi-root workspaces reconnect without a picker.
+2. **Debounced evidence capture.** The supervised observer polls Git state, deduplicates by fingerprint, and records change-type detail (created/modified/renamed/deleted/copied), branch transitions, and recovered commits. `.arcignore` adds per-project exclusions on top of the sensitive-path list. File contents are still never stored.
+3. **Crash-safe session lifecycle.** Each approved editor connection registers a `workspace_connections` lease (`owner_id` + pid, renewed by periodic `workspace touch` calls). All windows of a project share one `automatic` session; the last close ends it. Dead owners are pruned by heartbeat/pid checks, so a crash or killed extension host is recovered on the next open instead of being lost. Idle sessions rotate after 30 minutes of no activity, ending at their last activity time.
+4. **Automatic handoff.** `project_handoff` gains `previous_session` (latest evidence from the last ended session) and `last_test` (with a stale flag when the Git fingerprint moved on). The sidebar shows a Handoff section with source-linked evidence. Everything works without Ollama.
+5. **MCP startup integration.** The same handoff stays available through `arc_get_project_handoff`/`arc_get_task_review` for a fresh Codex or compatible agent session. Automatic injection into an agent conversation is not claimed; the agent must call the tool.
+6. **Automatic background indexing.** The existing pending-record queue and observer indexing loop are unchanged: evidence accumulates while Ollama is down and indexes when it returns.
+7. **Sidebar integration.** Overview shows branch, session, collection, and index status; Timeline lists the latest records with a full-timeline command; Handoff shows the previous session and unfinished work; the existing Chat view remains search-based.
+
+### Implementation status (2026-10-10)
+
+Implemented: `arc workspace open|touch|close` CLI, `Store.workspace_open/touch/close` with lease pruning and automatic session rotation, `sessions.origin`/`last_activity_at`/checkpoint columns, observer `branch` tracking and `changed_file_statuses` with `.arcignore` support, `project_handoff.previous_session`/`last_test`, extension `closeWorkspace`, periodic touch in the refresh loop, Git-root database discovery, multi-root restore, and sidebar Handoff/Timeline rows. Python suite: 57 passed; extension suite: 18 passed. Focused tests cover session sharing across two windows, stale-owner recovery, idle rotation, periodic checkpoints, nested-folder project resolution, change-type and branch events, deduplication, and `.arcignore`/sensitive exclusions.
+
+Remaining: real VS Code host verification of the automatic open/touch/close loop (tests stub the backend), verified agent-side startup retrieval by Codex, and the Phase 12 resource/offline gates above.
+
+### Completion gate
+
+Reopening an approved project in VS Code restores the same database and shows a handoff of the previous session; Git changes during a session are recorded without `arc capture`; rapid edits do not duplicate events; killing the extension host does not lose persisted evidence and the next open recovers a session boundary; the handoff works with Ollama stopped; a fresh MCP session can retrieve unfinished tasks; two windows on one project share and close one session; sensitive and `.arcignore`d paths stay out of memory.
+
+---
+
 # PART 8 — TEAM RESPONSIBILITIES
 
 The team has one implementation developer and one documentation/video lead. See [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md) for the current commands and implementation order, [DOCUMENTATION_AND_VIDEO.md](DOCUMENTATION_AND_VIDEO.md) for the teammate's deliverables, and [TEST_RESULTS.md](TEST_RESULTS.md) for actual results and missing evidence. Phases 8–11 have working implementations; Phase 12 validation remains open.

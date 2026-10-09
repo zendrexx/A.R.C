@@ -42,6 +42,13 @@ def build_parser() -> argparse.ArgumentParser:
     session_commands.add_parser("show", help="show a session and its events").add_argument(
         "session_id"
     )
+    workspace = commands.add_parser('workspace', help='manage an approved editor connection')
+    workspace_commands = workspace.add_subparsers(dest='workspace_command', required=True)
+    opened = workspace_commands.add_parser('open', help='start or join an automatic session')
+    opened.add_argument('owner_id')
+    opened.add_argument('--pid', type=int, required=True)
+    workspace_commands.add_parser('touch', help='renew a connection and checkpoint progress').add_argument('owner_id')
+    workspace_commands.add_parser('close', help='finish a connection').add_argument('owner_id')
 
     task = commands.add_parser("task", help="record or inspect an explicit task")
     task_commands = task.add_subparsers(dest="task_command", required=True)
@@ -202,6 +209,13 @@ def main(argv: list[str] | None = None) -> int:
                 result = service.sessions(project_path)
             else:
                 result = service.session_history(project_path, args.session_id)
+        elif args.command == 'workspace':
+            if args.workspace_command == 'open':
+                result = service.workspace_open(project_path, args.owner_id, args.pid)
+            elif args.workspace_command == 'touch':
+                result = service.workspace_touch(project_path, args.owner_id)
+            else:
+                result = service.workspace_close(project_path, args.owner_id)
         elif args.command == "task":
             if args.task_command == "add":
                 result = service.add_task(project_path, args.title)

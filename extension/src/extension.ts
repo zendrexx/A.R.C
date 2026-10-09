@@ -31,6 +31,7 @@ class MemoryView implements vscode.TreeDataProvider<Row>, vscode.Disposable {
     if (row.eventId) item.command = {command: 'arc.openEvent', title: 'Inspect Evidence', arguments: [row.eventId]};
     if (row.path) item.command = {command: 'arc.openFile', title: 'Open File', arguments: [row.path]};
     if (row.payload) item.command = {command: 'arc.inspect', title: 'Inspect', arguments: [row.payload]};
+    if (row.command) item.command = {command: row.command, title: row.label};
     return item;
   }
   dispose() { this.changed.dispose(); }
@@ -40,6 +41,9 @@ export function activate(context: vscode.ExtensionContext) {
   const memory = new MemoryView();
   let backend: Backend | undefined;
   let selected: vscode.WorkspaceFolder | undefined;
+  let selectedRoot: string | undefined;
+  let workspaceOwner: string | undefined;
+  let ticks = 0;
   let generation = 0;
   let chatView: vscode.WebviewView | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -64,7 +68,11 @@ export function activate(context: vscode.ExtensionContext) {
     if (token !== generation) return;
     const observer = await current.request(['observer', 'status']);
     if (token !== generation) return;
+    const handoff = await current.request(['handoff']);
+    if (token !== generation) return;
+    selectedRoot = state.project.path;
     state.observer = {...observer, running: current.observing, error: current.observerError};
+    state.handoff = handoff;
     memory.set(memoryRows(state)); status.text = `$(database) A.R.C.: ${state.project.name}`;
     status.tooltip = `Collection: ${observer.enabled ? observer.paused ? 'paused' : current.observing ? 'observing' : 'worker stopped' : 'disabled'} · ${state.index.pending_records} pending records`;
   };
@@ -82,7 +90,9 @@ export function activate(context: vscode.ExtensionContext) {
     }
   };
   const disconnect = () => {
-    generation++; backend?.dispose(); backend = undefined; selected = undefined;
+    generation++;
+    if (backend && workspaceOwner) backend.closeWorkspace(workspaceOwner);
+    backend?.dispose(); backend = undefined; selected = undefined; selectedRoot = undefined; workspaceOwner = undefined;
     if (timer) clearInterval(timer); timer = undefined;
     void chatView?.webview.postMessage({action: 'reset'});
     memory.set([]); status.text = '$(database) A.R.C.: disconnected'; status.tooltip = undefined;
@@ -101,7 +111,17 @@ export function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('arc');
     const localPython = path.join(folder.uri.fsPath, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
     const python = config.get<string>('pythonPath') || (existsSync(localPython) ? localPython : process.platform === 'win32' ? 'python' : 'python3');
-    const database = config.get<string>('databasePath') || '';
+    let localDatabase = '';
+    let candidate = folder.uri.fsPath;
+    while (true) {
+      const found = path.join(candidate, '.arc', 'arc.sqlite3');
+      if (existsSync(found)) {localDatabase = found; break;}
+      if (existsSync(path.join(candidate, '.git'))) break;
+      const parent = path.dirname(candidate);
+      if (parent === candidate) break;
+      candidate = parent;
+    }
+    const database = config.get<string>('databasePath') || process.env.ARC_DB || localDatabase;
     if (database && !path.isAbsolute(database)) throw new Error('A.R.C. databasePath must be absolute.');
     return new Backend(python, folder.uri.fsPath, database);
   };
@@ -114,7 +134,7 @@ export function activate(context: vscode.ExtensionContext) {
     return true;
   };
   const connectTo = async (choice: vscode.WorkspaceFolder) => {
-    if (!await approve(choice, `Connect A.R.C. to ${choice.name}? It reads local Git metadata and stored memory. Automatic observation is a separate opt-in command.`, 'Connect')) return;
+    if (!await approve(choice, `Connect A.R.C. to ${choice.name}? It reads local Git metadata and stored memory and tracks this editor session. Automatic Git observation is a separate opt-in command.`, 'Connect')) return;
     disconnect(); selected = choice;
     backend = backendFor(choice);
     const connected = backend; const connectToken = generation;
@@ -125,6 +145,14 @@ export function activate(context: vscode.ExtensionContext) {
       status.text = '$(warning) A.R.C.: connection error'; throw error;
     }
     if (connectToken !== generation) return;
+    const owner = randomBytes(16).toString('hex');
+    try { await connected.request(['workspace', 'open', owner, '--pid', String(process.pid)]); }
+    catch (error) {
+      if (connectToken === generation) disconnect();
+      throw error;
+    }
+    if (connectToken !== generation) {connected.closeWorkspace(owner); return;}
+    workspaceOwner = owner;
     await context.workspaceState.update('selectedProject', choice.uri.fsPath);
     if (connectToken !== generation) return;
     const observer = await connected.request(['observer', 'status']);
@@ -133,7 +161,13 @@ export function activate(context: vscode.ExtensionContext) {
     timer = setInterval(async () => {
       if (refreshPending) return;
       refreshPending = true;
-      try {await refresh();} catch { /* Interactive commands show errors; polling retries. */ }
+      try {
+        if (++ticks % 3 === 0 && workspaceOwner && !connected.busy) {
+          try { await connected.request(['workspace', 'touch', workspaceOwner]); }
+          catch { await connected.request(['workspace', 'open', workspaceOwner, '--pid', String(process.pid)]); }
+        }
+        await refresh();
+      } catch { /* Interactive commands show errors; polling retries. */ }
       finally {refreshPending = false;}
     }, 10000);
     await refresh();
@@ -177,12 +211,7 @@ export function activate(context: vscode.ExtensionContext) {
     const folders = vscode.workspace.workspaceFolders?.filter(f => f.uri.scheme === 'file') ?? [];
     const choice = folders.length === 1 ? folders[0] : (await vscode.window.showQuickPick(folders.map(folder => ({label: folder.name, folder})), {title: 'Register a Git project with A.R.C.'}))?.folder;
     if (!choice) throw new Error('Open a local Git project folder first.');
-    const config = vscode.workspace.getConfiguration('arc');
-    const localPython = path.join(choice.uri.fsPath, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-    const python = config.get<string>('pythonPath') || (existsSync(localPython) ? localPython : process.platform === 'win32' ? 'python' : 'python3');
-    const database = config.get<string>('databasePath') || '';
-    if (database && !path.isAbsolute(database)) throw new Error('A.R.C. databasePath must be absolute.');
-    const registration = new Backend(python, choice.uri.fsPath, database);
+    const registration = backendFor(choice);
     try { await registration.request(['init']); } finally { registration.dispose(); }
     await vscode.window.showInformationMessage(`Registered ${choice.name} with A.R.C. Use Connect Project to open its memory.`);
   });
@@ -245,7 +274,7 @@ export function activate(context: vscode.ExtensionContext) {
   });
   register('arc.openFile', async (relative: string) => {
     if (!selected) throw new Error('Connect a project first.');
-    const root = selected.uri.fsPath; const target = path.resolve(root, relative);
+    const root = selectedRoot || selected.uri.fsPath; const target = path.resolve(root, relative);
     const rel = path.relative(root, target);
     if (rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('File is outside the selected workspace.');
     await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(target)));
@@ -353,7 +382,8 @@ export function activate(context: vscode.ExtensionContext) {
     {dispose: disconnect});
   const previous = context.workspaceState.get<string>('selectedProject');
   const approved = context.workspaceState.get<string[]>('approvedProjects', []);
-  if (vscode.workspace.isTrusted && previous && approved.includes(previous) && vscode.workspace.workspaceFolders?.length === 1 && vscode.workspace.workspaceFolders[0].uri.fsPath === previous) {
-    void vscode.commands.executeCommand('arc.connect');
+  const previousFolder = previous ? vscode.workspace.workspaceFolders?.find(folder => folder.uri.fsPath === previous) : undefined;
+  if (vscode.workspace.isTrusted && previous && previousFolder && approved.includes(previous)) {
+    void connectTo(previousFolder);
   }
 }

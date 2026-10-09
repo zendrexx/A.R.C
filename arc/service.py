@@ -4,7 +4,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from arc.git_evidence import snapshot
+from arc.git_evidence import branch_name, snapshot
 from arc.handoff import select_handoff_evidence
 from arc.incidents import MIN_SEMANTIC_SIMILARITY, select_incident_matches
 from arc.memory import Embedder, EmbeddingUnavailable, MemoryEngine, redact
@@ -29,6 +29,8 @@ class ArcService:
 
     def _project(self, path: Path) -> dict:
         project = self.store.get_project(path)
+        if not project:
+            project = self.store.get_project(snapshot(path).root)
         if not project:
             raise ValueError(f"Project is not registered: {path.resolve()}. Run 'arc init' first.")
         return project
@@ -87,6 +89,27 @@ class ArcService:
 
     def sessions(self, path: Path, limit: int = 20) -> list[dict]:
         return self.store.sessions(self._project(path)["id"], min(max(limit, 1), 100))
+
+    def workspace_open(self, path: Path, owner_id: str, pid: int) -> dict:
+        project = self._project(path)
+        result = self.store.workspace_open(project['id'], owner_id, pid)
+        return {**result, 'handoff': self.project_handoff(path)}
+
+    def workspace_touch(self, path: Path, owner_id: str) -> dict:
+        project = self._project(path)
+        result = self.store.workspace_touch(project['id'], owner_id)
+        if result['checkpoint_due'] and not self.store.recording_paused(project['id']):
+            self.create_checkpoint(path)
+            self.store.mark_workspace_checkpoint(result['session']['id'],
+                                                 result['checkpoint_rowid'])
+        return result
+
+    def workspace_close(self, path: Path, owner_id: str) -> dict:
+        project = self._project(path)
+        result = self.store.workspace_close(project['id'], owner_id)
+        if result['checkpoint_due'] and not self.store.recording_paused(project['id']):
+            self.create_checkpoint(path)
+        return result
 
     def session_history(self, path: Path, session_id: str) -> dict:
         project = self._project(path)
@@ -525,7 +548,8 @@ class ArcService:
             "recording": self.recording_status(path),
             "memory_index": self.store.index_counts(project["id"], self.memory.embedder.model),
             "active_session": self.store.active_session(project["id"]),
-            "git": {"head": observed.head, "fingerprint": observed.fingerprint,
+            "git": {"head": observed.head, "branch": branch_name(observed.root),
+                    "fingerprint": observed.fingerprint,
                     "changed_paths": list(observed.changed_paths)},
             "tasks": tasks,
             "recent_events": [{"id": event["id"], "kind": event["kind"],
@@ -546,7 +570,11 @@ class ArcService:
         state = self.project_state(path)
         events = self.store.events(project["id"], limit=1000)
         total_events = self.store.project_event_count(project["id"])
-        recent_sessions = self.store.sessions(project["id"], limit=1)
+        recent_sessions = self.store.sessions(project["id"], limit=20)
+        previous = next((session for session in recent_sessions if session['ended_at']), None)
+        previous_events = (self.store.recent_session_events(project['id'], previous['id'], limit=6)
+                           if previous else [])
+        last_test = next((event for event in events if event['kind'] == 'test'), None)
         task_activity = {}
         for position, event in enumerate(events):
             if (event["task_id"] and event["task_id"] not in task_activity
@@ -596,6 +624,20 @@ class ArcService:
             "generated_at_utc": utc_now(), "project": state["project"],
             "git": state["git"], "active_session": state["active_session"],
             "latest_session": recent_sessions[0] if recent_sessions else None,
+            "previous_session": ({"session": previous,
+                                  "total_events": self.store.session_event_count(project['id'], previous['id']),
+                                  "recent_evidence": [{"id": event['id'], "kind": event['kind'],
+                                                       "summary": event['summary'],
+                                                       "source_ref": event['source_ref'],
+                                                       "changed_paths": event['details'].get('changed_paths', [])}
+                                                      for event in previous_events]}
+                                 if previous else None),
+            "last_test": ({"event_id": last_test['id'],
+                           "source_ref": last_test['source_ref'],
+                           "passed": bool(last_test['details'].get('passed')),
+                           "current": last_test['fingerprint'] == state['git']['fingerprint'],
+                           "summary": last_test['summary']}
+                          if last_test else None),
             "overview": (f"{len(unfinished)} unfinished task(s), "
                          f"{len(confirmed)} currently confirmed task(s), "
                          f"{len(selected)} selected evidence item(s)."),

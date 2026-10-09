@@ -4,7 +4,7 @@ import json
 import os
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -46,6 +46,12 @@ class Store:
             );
             CREATE UNIQUE INDEX IF NOT EXISTS sessions_one_active_per_project
                 ON sessions(project_id) WHERE ended_at IS NULL;
+            CREATE TABLE IF NOT EXISTS workspace_connections (
+                project_id TEXT NOT NULL REFERENCES projects(id),
+                owner_id TEXT NOT NULL, pid INTEGER NOT NULL,
+                opened_at TEXT NOT NULL, seen_at TEXT NOT NULL,
+                PRIMARY KEY(project_id, owner_id)
+            );
             CREATE TABLE IF NOT EXISTS events (
                 id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
                 task_id TEXT REFERENCES tasks(id), kind TEXT NOT NULL,
@@ -102,6 +108,20 @@ class Store:
             )
         if "dedup_key" not in columns:
             self.connection.execute("ALTER TABLE events ADD COLUMN dedup_key TEXT")
+        session_columns = {row["name"] for row in self.connection.execute(
+            "PRAGMA table_info(sessions)"
+        )}
+        if "origin" not in session_columns:
+            self.connection.execute("ALTER TABLE sessions ADD COLUMN origin TEXT NOT NULL DEFAULT 'manual'")
+        if "last_activity_at" not in session_columns:
+            self.connection.execute("ALTER TABLE sessions ADD COLUMN last_activity_at TEXT")
+        if "last_checkpoint_at" not in session_columns:
+            self.connection.execute("ALTER TABLE sessions ADD COLUMN last_checkpoint_at TEXT")
+        if "last_checkpoint_rowid" not in session_columns:
+            self.connection.execute("ALTER TABLE sessions ADD COLUMN last_checkpoint_rowid INTEGER NOT NULL DEFAULT 0")
+        self.connection.execute(
+            "UPDATE sessions SET last_activity_at=started_at WHERE last_activity_at IS NULL"
+        )
         observer_columns = {row["name"] for row in self.connection.execute(
             "PRAGMA table_info(observer_state)"
         )}
@@ -109,6 +129,8 @@ class Store:
             self.connection.execute(
                 "ALTER TABLE observer_state ADD COLUMN worker_pid INTEGER"
             )
+        if 'branch' not in observer_columns:
+            self.connection.execute('ALTER TABLE observer_state ADD COLUMN branch TEXT')
         # observation_state was a short-lived Phase 8 prototype table, replaced by observer_state.
         self.connection.execute("DROP TABLE IF EXISTS observation_state")
         incident_columns = {row["name"] for row in self.connection.execute(
@@ -212,9 +234,11 @@ class Store:
         if self.active_session(project_id):
             raise ValueError("A session is already active. End it before starting another.")
         session_id = uuid4().hex[:12]
+        now = utc_now()
         self.connection.execute(
-            "INSERT INTO sessions VALUES (?, ?, ?, ?, NULL)",
-            (session_id, project_id, label, utc_now()),
+            "INSERT INTO sessions (id, project_id, label, started_at, ended_at, origin, last_activity_at) "
+            "VALUES (?, ?, ?, ?, NULL, 'manual', ?)",
+            (session_id, project_id, label, now, now),
         )
         self.connection.commit()
         return self.get_session(session_id)
@@ -249,12 +273,168 @@ class Store:
         )
         return [self._event(row) for row in rows]
 
+    def recent_session_events(self, project_id: str, session_id: str, limit: int = 6) -> list[dict]:
+        rows = self.connection.execute(
+            'SELECT * FROM events WHERE project_id=? AND session_id=? ORDER BY rowid DESC LIMIT ?',
+            (project_id, session_id, limit),
+        )
+        return [self._event(row) for row in rows]
+
     def session_event_count(self, project_id: str, session_id: str) -> int:
         row = self.connection.execute(
             "SELECT COUNT(*) FROM events WHERE project_id=? AND session_id=?",
             (project_id, session_id),
         ).fetchone()
         return int(row[0])
+
+    @staticmethod
+    def _pid_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except PermissionError:
+            return True
+        except (OSError, TypeError, ValueError):
+            return False
+
+    def _start_automatic_session(self, project_id: str, now: str) -> dict:
+        session_id = uuid4().hex[:12]
+        self.connection.execute(
+            """INSERT INTO sessions
+               (id, project_id, label, started_at, ended_at, origin,
+                last_activity_at, last_checkpoint_at)
+               VALUES (?, ?, 'Automatic VS Code work', ?, NULL, 'automatic', ?, ?)""",
+            (session_id, project_id, now, now, now),
+        )
+        return self.get_session(session_id)
+
+    def _session_event_rowid(self, project_id: str, session_id: str) -> int:
+        return int(self.connection.execute(
+            "SELECT COALESCE(MAX(rowid), 0) FROM events WHERE project_id=? AND session_id=?",
+            (project_id, session_id),
+        ).fetchone()[0])
+
+    def _prune_connections(self, project_id: str, now: str) -> list[dict]:
+        cutoff = (datetime.fromisoformat(now) - timedelta(seconds=90)).isoformat(timespec='seconds')
+        owners = [dict(row) for row in self.connection.execute(
+            'SELECT owner_id, pid, seen_at FROM workspace_connections WHERE project_id=?',
+            (project_id,),
+        )]
+        for owner in owners:
+            if owner['seen_at'] < cutoff or not self._pid_alive(owner['pid']):
+                self.connection.execute(
+                    'DELETE FROM workspace_connections WHERE project_id=? AND owner_id=?',
+                    (project_id, owner['owner_id']),
+                )
+        return owners
+
+    def _session_for_event(self, project_id: str) -> dict | None:
+        active = self.active_session(project_id)
+        now = utc_now()
+        if active and active['origin'] == 'automatic':
+            last = datetime.fromisoformat(active['last_activity_at'] or active['started_at'])
+            if datetime.fromisoformat(now) - last >= timedelta(minutes=30):
+                self.connection.execute('UPDATE sessions SET ended_at=? WHERE id=?',
+                                        (active['last_activity_at'] or active['started_at'], active['id']))
+                active = None
+        if not active and self.connection.execute(
+                'SELECT 1 FROM workspace_connections WHERE project_id=? LIMIT 1',
+                (project_id,)).fetchone():
+            active = self._start_automatic_session(project_id, now)
+        return active
+
+    def workspace_open(self, project_id: str, owner_id: str, pid: int) -> dict:
+        if not re.fullmatch(r'[a-f0-9]{32}', owner_id) or pid <= 0:
+            raise ValueError('Workspace owner ID or process ID is invalid')
+        now = utc_now()
+        with self.connection:
+            self.connection.execute('BEGIN IMMEDIATE')
+            owners = self._prune_connections(project_id, now)
+            live = self.connection.execute(
+                'SELECT COUNT(*) FROM workspace_connections WHERE project_id=?',
+                (project_id,),
+            ).fetchone()[0]
+            active = self.active_session(project_id)
+            recovered = bool(active and active['origin'] == 'automatic' and not live)
+            if recovered:
+                prior_seen = max((owner['seen_at'] for owner in owners), default=active['started_at'])
+                ended_at = max(active['last_activity_at'] or active['started_at'], prior_seen)
+                self.connection.execute('UPDATE sessions SET ended_at=? WHERE id=?',
+                                        (ended_at, active['id']))
+                active = None
+            self.connection.execute(
+                """INSERT INTO workspace_connections
+                   (project_id, owner_id, pid, opened_at, seen_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(project_id, owner_id) DO UPDATE SET
+                   pid=excluded.pid, seen_at=excluded.seen_at""",
+                (project_id, owner_id, pid, now, now),
+            )
+            if not active:
+                active = self._start_automatic_session(project_id, now)
+        return {'session': active, 'recovered_previous_session': recovered}
+
+    def workspace_touch(self, project_id: str, owner_id: str) -> dict:
+        now = utc_now()
+        with self.connection:
+            self.connection.execute('BEGIN IMMEDIATE')
+            changed = self.connection.execute(
+                'UPDATE workspace_connections SET seen_at=? WHERE project_id=? AND owner_id=?',
+                (now, project_id, owner_id),
+            ).rowcount
+            self._prune_connections(project_id, now)
+            if not changed:
+                raise ValueError('Workspace connection expired; reconnect the project')
+            active = self.active_session(project_id)
+            checkpoint_due = False
+            checkpoint_rowid = 0
+            if active and active['origin'] == 'automatic':
+                last = datetime.fromisoformat(active['last_activity_at'] or active['started_at'])
+                if datetime.fromisoformat(now) - last >= timedelta(minutes=30):
+                    self.connection.execute('UPDATE sessions SET ended_at=? WHERE id=?',
+                                            (active['last_activity_at'] or active['started_at'],
+                                             active['id']))
+                    active = None
+                else:
+                    checkpoint_at = datetime.fromisoformat(active['last_checkpoint_at'] or active['started_at'])
+                    rowid = self._session_event_rowid(project_id, active['id'])
+                    if (rowid > active['last_checkpoint_rowid']
+                            and datetime.fromisoformat(now) - checkpoint_at >= timedelta(minutes=5)):
+                        checkpoint_due = True
+                        checkpoint_rowid = rowid
+        return {'session': active, 'checkpoint_due': checkpoint_due,
+                'checkpoint_rowid': checkpoint_rowid}
+
+    def mark_workspace_checkpoint(self, session_id: str, rowid: int) -> None:
+        self.connection.execute(
+            'UPDATE sessions SET last_checkpoint_at=?, last_checkpoint_rowid=? WHERE id=?',
+            (utc_now(), rowid, session_id),
+        )
+        self.connection.commit()
+
+    def workspace_close(self, project_id: str, owner_id: str) -> dict:
+        now = utc_now()
+        with self.connection:
+            self.connection.execute('BEGIN IMMEDIATE')
+            self._prune_connections(project_id, now)
+            self.connection.execute(
+                'DELETE FROM workspace_connections WHERE project_id=? AND owner_id=?',
+                (project_id, owner_id),
+            )
+            remaining = self.connection.execute(
+                'SELECT COUNT(*) FROM workspace_connections WHERE project_id=?',
+                (project_id,),
+            ).fetchone()[0]
+            active = self.active_session(project_id)
+            checkpoint_due = False
+            if not remaining and active and active['origin'] == 'automatic':
+                rowid = self._session_event_rowid(project_id, active['id'])
+                checkpoint_due = rowid > active['last_checkpoint_rowid']
+                self.connection.execute('UPDATE sessions SET ended_at=? WHERE id=?',
+                                        (now, active['id']))
+                active = self.get_session(active['id'])
+        return {'session': active, 'remaining_windows': remaining,
+                'checkpoint_due': checkpoint_due}
 
     def set_claim(self, task_id: str, claim: str) -> None:
         self.connection.execute("UPDATE tasks SET claim=? WHERE id=?", (claim, task_id))
@@ -281,7 +461,7 @@ class Store:
         event_id = uuid4().hex
         if source_ref == "auto":
             source_ref = f"arc:event/{event_id}"
-        active = self.active_session(project_id)
+        active = self._session_for_event(project_id)
         if commit:
             with self.connection:
                 if set_task_confirmed is not None:
@@ -300,6 +480,9 @@ class Store:
                 )
                 self.connection.execute("INSERT INTO event_fts (event_id, summary) VALUES (?, ?)",
                                         (event_id, summary))
+                if active:
+                    self.connection.execute('UPDATE sessions SET last_activity_at=? WHERE id=?',
+                                            (utc_now(), active['id']))
         else:
             if set_task_confirmed is not None:
                 self.connection.execute(
@@ -317,6 +500,9 @@ class Store:
             )
             self.connection.execute("INSERT INTO event_fts (event_id, summary) VALUES (?, ?)",
                                     (event_id, summary))
+            if active:
+                self.connection.execute('UPDATE sessions SET last_activity_at=? WHERE id=?',
+                                        (utc_now(), active['id']))
             # caller controls commit when commit=False
 
         return self.get_event(event_id)
@@ -660,6 +846,7 @@ class Store:
             self.connection.execute("DELETE FROM checkpoints WHERE project_id=?", (project_id,))
             self.connection.execute("DELETE FROM tasks WHERE project_id=?", (project_id,))
             self.connection.execute("DELETE FROM sessions WHERE project_id=?", (project_id,))
+            self.connection.execute("DELETE FROM workspace_connections WHERE project_id=?", (project_id,))
             self.connection.execute("DELETE FROM project_controls WHERE project_id=?", (project_id,))
             self.connection.execute("DELETE FROM observer_state WHERE project_id=?", (project_id,))
         return {"deleted_events": events, "deleted_tasks": tasks,
