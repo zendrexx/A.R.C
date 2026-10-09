@@ -43,7 +43,7 @@ export function installControls(host:Host){
       {label:`Ollama: ${running?'Running':'Offline'}`,command:'arc.modelStatus'},
       {label:`Embedding: ${selected('embedding')}`,command:'arc.selectEmbeddingModel'},
       {label:`Chat: ${selected('chat')||'Choose a model'}`,command:'arc.selectChatModel'},
-      ...quickActions.filter(([group,,command])=>group==='AI Models'&&!['arc.selectChatModel','arc.selectEmbeddingModel','arc.chat.focus'].includes(command)).map(([,label,command])=>({label,command})),
+      {label:'AI Model Controls…',command:'arc.modelActions'},
       {label:'Model Settings',command:'arc.modelSettings'}
     ]},
     {label:'Controls',children:[{label:'Pause Tracking',command:'arc.pause'},{label:'Resume Tracking',command:'arc.resume'},{label:'Settings',command:'arc.settings'}]}
@@ -53,8 +53,10 @@ export function installControls(host:Host){
     return (payload.models||[]).filter((model:any)=>!model.remote_host&&!model.remote_model&&validModelName(model.name));
   };
   const status=async()=>{
+    let loaded:string[]=[];
     try{await tags();}catch{running=false;updateRows();}
-    return {ollama:running?'Running':'Offline',embedding:selected('embedding'),chat:selected('chat')||'Not selected'};
+    if(running){try{const result=await localApi('/api/ps');loaded=(result.models||[]).map((model:any)=>model.name);}catch{}}
+    return {ollama:running?'Running':'Offline',embedding:selected('embedding'),chat:selected('chat')||'Not selected',loaded};
   };
   const select=async(role:string)=>{
     const installed=await tags();
@@ -85,6 +87,11 @@ export function installControls(host:Host){
     }
     const pick=await vscode.window.showQuickPick(items,{title:'A.R.C. Quick Actions'}) as (vscode.QuickPickItem&{command?:string})|undefined;
     if(pick?.command)await vscode.commands.executeCommand(pick.command);
+  });
+  host.register('arc.modelActions',async()=>{
+    const items=quickActions.filter(([group])=>group==='AI Models').map(([,label,command])=>({label,command}));
+    const pick=await vscode.window.showQuickPick(items,{title:'A.R.C. AI Models'});
+    if(pick)await vscode.commands.executeCommand(pick.command);
   });
   host.register('arc.dashboard',async()=>{
     const backend=host.backend();
