@@ -1150,7 +1150,7 @@ On the Mac M1 8GB machine, a new developer can open a project in VS Code, have s
 
 # PART 8 — TEAM RESPONSIBILITIES
 
-The concrete parallel schedule, file ownership, branch workflow, shared interface, and commands for using the current prototype are in [TWO_DEVELOPER_WORKFLOW.md](TWO_DEVELOPER_WORKFLOW.md). Start with Developer 1's Phase 2/5 retrieval and offline validation while Developer 2 completes the open Phase 3/4 evidence and handoff work. Integrate at each completion gate; Phases 8–12 remain future work.
+The concrete phase-by-phase split, file ownership, branch workflow, shared interface, and commands for using the current prototype are in [TWO_DEVELOPER_WORKFLOW.md](TWO_DEVELOPER_WORKFLOW.md). Phase numbers are product milestones, not assignments to one developer. Start with Developer 1's Phase 2 evaluation and Phase 4 evidence selector in parallel with Developer 2's Phase 3 corrections and Phase 4 service/MCP wiring. Then split Phase 5 between incident matching and evidence links. Integrate at each completion gate; Phases 8–12 remain future work.
 
 ## Developer 1 — Local AI and Memory Infrastructure
 
