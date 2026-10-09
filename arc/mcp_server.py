@@ -150,10 +150,11 @@ def arc_search_incidents(query: str, cause: str | None = None,
 
 @mcp.tool(annotations=READ_ONLY)
 def arc_get_observation_status() -> dict:
-    """Get automatic observation state, worker heartbeat, and the Git commit cursor."""
+    """Get observer enable/pause state, worker liveness, and the Git commit cursor."""
+    from arc.observer import status
     service, project = _service()
     try:
-        return service.observation_status(project)
+        return status(service, project)
     finally:
         service.close()
 

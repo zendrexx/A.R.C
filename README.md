@@ -50,20 +50,6 @@ The command opens `http://127.0.0.1:8765/` in your browser. Keep that terminal o
 
 The dashboard runs only on loopback and uses the same `ArcService` and SQLite database as the CLI and MCP server. It does not start sessions, run tests, watch files, or index new events on its own. Use `arc watch`, `arc capture`, `arc test`, and `arc index` to record and index development activity. The dashboard's **Index pending events** button runs the same local indexing operation. Its **Check local model** button tests `all-minilm` on your computer; the rest of the dashboard is usable without Ollama.
 
-## Watch a project automatically
-
-`arc watch` is an opt-in foreground worker for the selected registered project. Keep its terminal open while you work:
-
-```bash
-arc watch            # Ctrl+C to stop
-arc observe status   # worker, cursor, and pause state from another terminal
-arc observe pause    # suspend all new recording for this project
-arc observe resume   # resume; anything changed while paused is not imported
-arc observe stop     # turn the opt-in off; a running worker exits
-```
-
-While running, the worker records one `file_change` event per stable change (ten unchanged saves stay one record), and one `commit` event per new commit — including commits made while no worker was running, recovered through a persisted Git cursor. Generated directories and sensitive paths such as `.env` are skipped before anything is stored, and file contents are never recorded — only the path and a content hash. An observed event can never mark a task tested or confirmed; that still requires the explicit `arc capture`/`arc test`/`arc task confirm` evidence.
-
 The setup commands register the real project database without adding sample incidents. For a separate example run, use the [first hands-on test](#first-hands-on-test). For actual development, start a session and follow [the current-use steps](docs/PROJECT_WORKFLOW.md#use-the-current-prototype).
 
 Use `arc search "database upgrade" --kind error` to filter by event type. Use `--keyword-only` to search without Ollama, or `--hybrid` to combine semantic and exact keyword rankings. Results include indexed and pending record counts; `score_kind` identifies how each ranking score was computed, and scores are not probabilities.
@@ -128,9 +114,12 @@ arc observer enable
 arc watch
 ```
 
-The worker polls eligible Git state every five seconds, coalesces unchanged saves, records reachable commits made while it was stopped, and retries indexing two records at a time. It creates an observation session if no session is active. Sessions remain open across worker restarts; `arc session end` closes one explicitly. Run controls and queries from another terminal:
+The worker polls eligible Git state every five seconds, coalesces unchanged saves, records reachable commits made while it was stopped, and retries indexing two records at a time. It creates an observation session if no session is active. Sessions remain open across worker restarts; `arc session end` closes one explicitly. `arc observer start` runs the same worker detached — no terminal stays open — and `arc observer stop` disables observation and terminates it. The VS Code extension supervises `arc watch` itself, so no extra launcher is needed there. Other controls and queries run from any terminal:
 
 ```bash
+arc observer start   # detached worker; its log path is printed
+arc observer status  # enable/pause state, worker liveness, Git cursor
+arc observer stop    # disable observation and terminate the worker
 arc observer pause
 arc observer resume
 arc observer disable

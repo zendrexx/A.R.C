@@ -1,11 +1,10 @@
 """Evidence rules and the stable service boundary used by CLI and MCP."""
 
-import os
 import shlex
 import subprocess
 from pathlib import Path
 
-from arc.git_evidence import current_branch, current_head, snapshot
+from arc.git_evidence import snapshot
 from arc.handoff import select_handoff_evidence
 from arc.incidents import MIN_SEMANTIC_SIMILARITY, select_incident_matches
 from arc.memory import Embedder, EmbeddingUnavailable, MemoryEngine, redact
@@ -51,52 +50,7 @@ class ArcService:
 
     def set_recording_paused(self, path: Path, paused: bool) -> dict:
         project = self._project(path)
-        result = self.store.set_recording_paused(project["id"], paused)
-        if not paused and self.store.observation_state(project["id"])["enabled"]:
-            # Resuming establishes a fresh baseline: commits made while paused
-            # are deliberately unrecorded, so the cursor moves to current HEAD.
-            root = Path(project["path"])
-            self.store.set_observation_cursor(
-                project["id"], current_head(root), current_branch(root))
-        return result
-
-    def _observation_view(self, project_id: str, state: dict | None = None) -> dict:
-        state = state or self.store.observation_state(project_id)
-        pid = state["worker_pid"]
-        alive = False
-        if pid:
-            try:
-                os.kill(int(pid), 0)
-                alive = True
-            except (OSError, ValueError):
-                alive = False
-        return {"enabled": bool(state["enabled"]), "worker_pid": pid,
-                "worker_process_alive": alive, "heartbeat_at": state["heartbeat_at"],
-                "cursor_head": state["cursor_head"],
-                "cursor_branch": state["cursor_branch"],
-                "session_id": state["session_id"], "updated_at": state["updated_at"]}
-
-    def start_observation(self, path: Path) -> dict:
-        project = self._project(path)
-        state = self.store.set_observation_enabled(project["id"], True)
-        return {"project": {"id": project["id"], "name": project["name"],
-                            "path": project["path"]},
-                "observation": self._observation_view(project["id"], state),
-                "note": "Run 'arc watch' in a terminal to collect file and Git activity."}
-
-    def stop_observation(self, path: Path) -> dict:
-        project = self._project(path)
-        state = self.store.set_observation_enabled(project["id"], False)
-        return self._observation_view(project["id"], state)
-
-    def observation_status(self, path: Path) -> dict:
-        project = self._project(path)
-        view = self._observation_view(project["id"])
-        view["recording_paused"] = self.store.recording_paused(project["id"])
-        view["observed_events"] = self.store.watcher_event_count(project["id"])
-        view["scope"] = ("file changes and new commits; a file event never marks "
-                         "a task tested or confirmed")
-        return view
+        return self.store.set_recording_paused(project["id"], paused)
 
     def clear_project_memory(self, path: Path, confirmation: str) -> dict:
         project = self._project(path)
@@ -569,7 +523,6 @@ class ArcService:
             "project": {"id": project["id"], "name": project["name"],
                         "path": project["path"]},
             "recording": self.recording_status(path),
-            "observation": self._observation_view(project["id"]),
             "memory_index": self.store.index_counts(project["id"], self.memory.embedder.model),
             "active_session": self.store.active_session(project["id"]),
             "git": {"head": observed.head, "fingerprint": observed.fingerprint,
@@ -679,15 +632,15 @@ class ArcService:
         project = self._project(path)
         limit = min(max(limit, 1), 100)
         offset = max(offset, 0)
-        events, total = self.store.timeline(project["id"], limit, offset, kind)
+        page = self.store.timeline(project["id"], limit, offset, kind)
         return {"events": [{"id": event["id"], "kind": event["kind"],
                             "summary": event["summary"], "source": event["source"],
                             "source_ref": event["source_ref"],
                             "created_at": event["created_at"],
                             "task_id": event["task_id"],
-                            "session_id": event["session_id"]} for event in events],
-                "total": total, "offset": offset, "limit": limit,
-                "has_more": offset + len(events) < total}
+                            "session_id": event["session_id"]} for event in page["events"]],
+                "total": page["total_events"], "offset": offset, "limit": limit,
+                "has_more": page["next_offset"] is not None}
 
     def checkpoint_history(self, path: Path, limit: int = 20) -> list[dict]:
         project = self._project(path)

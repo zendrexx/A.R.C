@@ -87,21 +87,12 @@ class Store:
                 recording_paused INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL
             );
-            CREATE TABLE IF NOT EXISTS observation_state (
-                project_id TEXT PRIMARY KEY REFERENCES projects(id),
-                enabled INTEGER NOT NULL DEFAULT 0,
-                cursor_head TEXT,
-                cursor_branch TEXT,
-                worker_pid INTEGER,
-                heartbeat_at TEXT,
-                session_id TEXT REFERENCES sessions(id),
-                updated_at TEXT NOT NULL
-            );
             CREATE VIRTUAL TABLE IF NOT EXISTS event_fts USING fts5(event_id UNINDEXED, summary);
             CREATE TABLE IF NOT EXISTS observer_state (
                 project_id TEXT PRIMARY KEY REFERENCES projects(id),
                 enabled INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0,
-                fingerprint TEXT, head TEXT, updated_at TEXT
+                fingerprint TEXT, head TEXT, updated_at TEXT,
+                worker_pid INTEGER
             );
         """)
         columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(events)")}
@@ -111,6 +102,15 @@ class Store:
             )
         if "dedup_key" not in columns:
             self.connection.execute("ALTER TABLE events ADD COLUMN dedup_key TEXT")
+        observer_columns = {row["name"] for row in self.connection.execute(
+            "PRAGMA table_info(observer_state)"
+        )}
+        if "worker_pid" not in observer_columns:
+            self.connection.execute(
+                "ALTER TABLE observer_state ADD COLUMN worker_pid INTEGER"
+            )
+        # observation_state was a short-lived Phase 8 prototype table, replaced by observer_state.
+        self.connection.execute("DROP TABLE IF EXISTS observation_state")
         incident_columns = {row["name"] for row in self.connection.execute(
             "PRAGMA table_info(incidents)"
         )}
@@ -182,91 +182,6 @@ class Store:
         )
         self.connection.commit()
         return {"recording_paused": paused, "updated_at": updated_at}
-
-    def observation_state(self, project_id: str) -> dict:
-        row = self.connection.execute(
-            "SELECT * FROM observation_state WHERE project_id=?", (project_id,)
-        ).fetchone()
-        return dict(row) if row else {
-            "project_id": project_id, "enabled": 0, "cursor_head": None,
-            "cursor_branch": None, "worker_pid": None, "heartbeat_at": None,
-            "session_id": None, "updated_at": None,
-        }
-
-    def set_observation_enabled(self, project_id: str, enabled: bool,
-                                head: str | None = None,
-                                branch: str | None = None) -> dict:
-        now = utc_now()
-        with self.connection:
-            self.connection.execute(
-                """INSERT INTO observation_state
-                   (project_id, enabled, cursor_head, cursor_branch, updated_at)
-                   VALUES (?, ?, ?, ?, ?)
-                   ON CONFLICT(project_id) DO UPDATE SET
-                   enabled=excluded.enabled,
-                   cursor_head=COALESCE(excluded.cursor_head, observation_state.cursor_head),
-                   cursor_branch=COALESCE(excluded.cursor_branch, observation_state.cursor_branch),
-                   updated_at=excluded.updated_at""",
-                (project_id, int(enabled), head, branch, now),
-            )
-            if not enabled:
-                self.connection.execute(
-                    "UPDATE observation_state SET worker_pid=NULL, heartbeat_at=NULL "
-                    "WHERE project_id=?", (project_id,)
-                )
-        return self.observation_state(project_id)
-
-    def set_observation_cursor(self, project_id: str, head: str,
-                               branch: str) -> None:
-        self.connection.execute(
-            """UPDATE observation_state SET cursor_head=?, cursor_branch=?,
-               updated_at=? WHERE project_id=?""",
-            (head, branch, utc_now(), project_id),
-        )
-        self.connection.commit()
-
-    def set_observation_worker(self, project_id: str, pid: int | None,
-                               session_id: str | None = None) -> None:
-        self.connection.execute(
-            """UPDATE observation_state SET worker_pid=?, heartbeat_at=?,
-               session_id=?, updated_at=? WHERE project_id=?""",
-            (pid, utc_now() if pid is not None else None,
-             session_id, utc_now(), project_id),
-        )
-        self.connection.commit()
-
-    def heartbeat_observation(self, project_id: str, pid: int) -> None:
-        self.connection.execute(
-            """UPDATE observation_state SET heartbeat_at=?, updated_at=?
-               WHERE project_id=? AND worker_pid=?""",
-            (utc_now(), utc_now(), project_id, pid),
-        )
-        self.connection.commit()
-
-    def start_observation_session(self, project_id: str) -> dict:
-        session_id = uuid4().hex[:12]
-        now = utc_now()
-        # An observation run never occupies the active-session slot; ended_at is
-        # updated again when the worker stops so the row records its timespan.
-        self.connection.execute(
-            "INSERT INTO sessions VALUES (?, ?, ?, ?, ?)",
-            (session_id, project_id, "Automatic observation", now, now),
-        )
-        self.connection.commit()
-        return self.get_session(session_id)
-
-    def finish_observation_session(self, session_id: str) -> None:
-        self.connection.execute(
-            "UPDATE sessions SET ended_at=? WHERE id=?", (utc_now(), session_id),
-        )
-        self.connection.commit()
-
-    def watcher_event_count(self, project_id: str) -> int:
-        row = self.connection.execute(
-            "SELECT COUNT(*) FROM events WHERE project_id=? AND source='watcher'",
-            (project_id,),
-        ).fetchone()
-        return int(row[0])
 
     def add_task(self, project_id: str, title: str) -> dict:
         task_id = uuid4().hex[:12]
@@ -476,19 +391,6 @@ class Store:
         ).fetchone()
         return int(row[0])
 
-    def timeline(self, project_id: str, limit: int, offset: int = 0,
-                 kind: str | None = None) -> tuple[list[dict], int]:
-        filter_sql = "project_id=? AND (? IS NULL OR kind=?)"
-        arguments = (project_id, kind, kind)
-        total = int(self.connection.execute(
-            f"SELECT COUNT(*) FROM events WHERE {filter_sql}", arguments
-        ).fetchone()[0])
-        rows = self.connection.execute(
-            f"SELECT * FROM events WHERE {filter_sql} ORDER BY rowid DESC LIMIT ? OFFSET ?",
-            (*arguments, limit, offset),
-        )
-        return [self._event(row) for row in rows], total
-
     def create_incident(self, project_id: str, error_event_id: str,
                         cause: str | None = None,
                         cause_event_id: str | None = None) -> dict:
@@ -559,13 +461,6 @@ class Store:
             ON e.id=v.event_id AND v.model=?
             WHERE e.project_id=? AND v.event_id IS NULL
             ORDER BY e.rowid DESC LIMIT ?""", (model, project_id, limit))
-        return [self._event(row) for row in rows]
-
-        rows = self.connection.execute("""
-            SELECT e.* FROM events e LEFT JOIN vectors v
-            ON e.id=v.event_id AND v.model=?
-            WHERE e.project_id=? AND v.event_id IS NULL ORDER BY e.rowid LIMIT ?
-        """, (model, project_id, max(1, min(limit, 100))))
         return [self._event(row) for row in rows]
 
     def put_vector(self, event_id: str, model: str, values: list[float]) -> None:
@@ -672,6 +567,6 @@ class Store:
             self.connection.execute("DELETE FROM tasks WHERE project_id=?", (project_id,))
             self.connection.execute("DELETE FROM sessions WHERE project_id=?", (project_id,))
             self.connection.execute("DELETE FROM project_controls WHERE project_id=?", (project_id,))
-            self.connection.execute("DELETE FROM observation_state WHERE project_id=?", (project_id,))
+            self.connection.execute("DELETE FROM observer_state WHERE project_id=?", (project_id,))
         return {"deleted_events": events, "deleted_tasks": tasks,
                 "project_registration_kept": True}

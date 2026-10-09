@@ -4,9 +4,9 @@ A.R.C. has one implementation developer. The second team member owns documentati
 
 ## Current position
 
-The CLI, local SQLite evidence store, explicit sessions, Git capture, configured test recording, local `all-minilm` search, stdio MCP integration, Phase 6 browser dashboard, and the Phase 8 opt-in watcher work. A disconnected-network semantic search succeeded according to the user's 2026-10-09 trial. Phase 3 task correction/review, Phase 4 handoff, and Phase 5 linked incident search work through CLI and MCP. Controlled local-model tests passed for paraphrased error retrieval, cause separation, and unrelated-query rejection. The unfamiliar-user dashboard gate is open. Automatic indexing, chat, and the VS Code extension are later phases.
+The CLI, local SQLite evidence store, explicit sessions, Git capture, configured test recording, local `all-minilm` search, stdio MCP integration, Phase 6 browser dashboard, and the Phase 8 opt-in watcher work. A disconnected-network semantic search succeeded according to the user's 2026-10-09 trial. Phase 3 task correction/review, Phase 4 handoff, and Phase 5 linked incident search work through CLI and MCP. Controlled local-model tests passed for paraphrased error retrieval, cause separation, and unrelated-query rejection. The unfamiliar-user dashboard gate is open. Automatic indexing, cited local answers (`arc chat`), paginated timeline, and the VS Code extension are implemented; the Phase 12 real-machine validation gates in PHASE_12_VALIDATION.md remain open.
 
-Event collection is explicit by default; `arc watch` (below) adds opt-in automatic observation. The real `.arc/arc.sqlite3` database holds task `ccd44503aac9`, which the developer confirmed at its earlier Git fingerprint. Subsequent Phase 5 file changes make that test and confirmation historical under the current-state rules; the confirmation event remains available in task history. `.arc/first-test.sqlite3` contains trial records. Databases and virtual environments are ignored by Git.
+Event collection is explicit by default; `arc observer`/`arc watch` (below) adds opt-in automatic observation. The real `.arc/arc.sqlite3` database holds task `ccd44503aac9`, which the developer confirmed at its earlier Git fingerprint. Subsequent Phase 5 file changes make that test and confirmation historical under the current-state rules; the confirmation event remains available in task history. `.arc/first-test.sqlite3` contains trial records. Databases and virtual environments are ignored by Git.
 
 ## Use the current prototype
 
@@ -33,7 +33,7 @@ arc checkpoint
 arc session end
 ```
 
-To collect file and commit activity without manual captures, keep `arc watch` running in a terminal during the work session. It records stable file changes and new commits once each, skips sensitive and generated paths, and never marks a task tested or confirmed. Control it from another terminal with `arc observe status`, `pause`, `resume`, and `stop`; resuming after a pause starts a fresh baseline instead of importing what changed while paused.
+To collect file and commit activity without manual captures, run `arc observer start` — the worker detaches so no terminal stays open (a log path is printed). It records Git-state changes and new commits once each, skips sensitive and generated paths, and never marks a task tested or confirmed. `arc watch` runs the same worker in the foreground and is what the VS Code extension supervises. Control it from any terminal with `arc observer status`, `pause`, `resume`, `disable`, and `stop` (disable + terminate); resuming after a pause starts a fresh baseline instead of importing what changed while paused.
 
 For a real decision, error, or attempted fix, use `arc note --kind decision "..."`, `--kind error`, or `--kind attempt`. A.R.C. cannot recover a reason from changed paths alone. `arc handoff` selects recorded context immediately; `arc index` is only needed for semantic search. `arc session list` returns session IDs; `arc session show ID` displays that session. `arc event ID` resolves a search hit's `arc:event/ID` reference.
 
@@ -72,8 +72,8 @@ If `codex` is already on the terminal path, use `codex` in place of `"$codex_bin
 2. **Done — Phase 4:** a fresh Codex session retrieved source-linked real-project context. The developer explicitly confirmed task `ccd44503aac9` afterward; that confirmation is retained as historical evidence when Git changes.
 3. **Done — Phase 5 controlled gate:** incident errors, causes, attempts, reported resolutions, and tests are linked in SQLite; CLI/MCP retrieval separated similar wording with different causes and rejected an unrelated local-model query.
 4. **Now — Phases 6–7:** the dashboard implementation and automated HTTP checks are done. Run an unfamiliar-user browser trial to close Phase 6, then widen real-project, privacy, retrieval, and offline trials. The teammate records the evidence and produces the demo assets from actual results.
-5. **Done — Phase 8 watcher:** `arc watch`/`arc observe` record deduplicated file and commit events with a persisted Git cursor, pause/resume baselines, and sensitive-path filtering; automated tests cover the acceptance criteria.
-6. **Future — Phases 9–12:** add automatic indexing, local chat, and the VS Code extension. Re-estimate durations for one implementation developer.
+5. **Done — Phase 8 observer:** `arc watch`/`arc observer` record deduplicated Git and commit events with a persisted `observer_state` cursor, pause/resume baselines, and sensitive-path filtering; the Phase 11 extension supervises the worker and `arc observer start` runs it detached; automated tests cover the acceptance criteria.
+6. **Now — Phases 9–12 validation:** automatic indexing, local chat, timeline, and the VS Code extension are implemented. Complete the Phase 12 real-machine gates: VS Code visual checks, offline trial, sensitive-path checks, restart/resource measurements, and the backup demo.
 
 The evidence boundary remains **recorded event → SQLite event ID → embedding keyed by event ID → source-linked search hit**. Keep `arc/contracts.py`, SQLite migrations, and public CLI/MCP response fields compatible when extending it. The documentation/video lead can review setup and demo clarity without editing implementation files.
 
