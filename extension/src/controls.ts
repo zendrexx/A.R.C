@@ -49,7 +49,10 @@ export function installControls(host:Host){
     {label:'Controls',children:[{label:'Pause Tracking',command:'arc.pause'},{label:'Resume Tracking',command:'arc.resume'},{label:'Settings',command:'arc.settings'}]}
   ]);
   const tags=async()=>{
-    const payload=await localApi('/api/tags');running=true;updateRows();
+    let payload;
+    try{payload=await localApi('/api/tags');}
+    catch{running=false;updateRows();throw new Error('Ollama is offline. Use ARC: Start Ollama, or install Ollama if it is missing.');}
+    running=true;updateRows();
     return (payload.models||[]).filter((model:any)=>!model.remote_host&&!model.remote_model&&validModelName(model.name));
   };
   const status=async()=>{

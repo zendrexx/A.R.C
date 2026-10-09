@@ -1,5 +1,6 @@
 """Grounded local answers from bounded, inspectable project evidence."""
 import json
+import os
 import re
 from datetime import date, datetime, timedelta, timezone
 from urllib.error import URLError
@@ -15,6 +16,9 @@ RATIONALE_WORDS = re.compile(r'\bbecause\b|\breason\b|\brationale\b', re.I)
 
 class OllamaChat:
     model = 'qwen3:1.7b'
+
+    def __init__(self):
+        self.model = os.environ.get('ARC_CHAT_MODEL', self.model)
 
     def respond(self, question, events):
         evidence = [{k: e[k] for k in ('id', 'kind', 'created_at', 'summary')} for e in events[:12]]

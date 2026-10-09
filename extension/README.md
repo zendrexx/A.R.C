@@ -6,9 +6,19 @@ Phase 11 integration: a native Memory tree and a local Chat view backed by the P
 
 After initial project connection and observation consent, approved workspaces reconnect when VS Code starts. A.R.C. checks the loopback Ollama API and reuses a running server. If installed Ollama is stopped, it starts a hidden server without opening a Terminal. Set `arc.ollama.autoStart` to false to disable that startup; existing servers can still be used.
 
-Missing `all-minilm` and optional chat model `qwen3:1.7b` downloads ask for permission once. Approval or refusal is remembered across workspaces. Use **A.R.C.: Retry Local AI Setup** to change that decision. Ollama itself must be installed once; the extension does not install system software.
+The embedding model defaults to `all-minilm`. Choose your installed conversational model with **ARC: Select AI Model**; no chat model is assumed. Model preferences are saved in `arc.models.embedding` and `arc.models.chat` and apply to CLI requests and automatic indexing. Missing selected models ask for download permission once. **ARC: Download Model** offers another explicitly confirmed download. Ollama itself must be installed once.
 
-Health checks list installed models without loading them. Pending summaries are indexed in batches of two, at most every 30 seconds. Records stay queued while AI is unavailable. Connection failures retry with a bounded backoff. Managed servers bind to loopback with `OLLAMA_NO_CLOUD=1`, one loaded model, and one parallel request. A.R.C. only requests its fixed local models; it does not alter cloud settings on an independently running server. No shared Ollama server is terminated on disconnect or reload.
+Health checks list installed models without loading them. Pending summaries are indexed in batches of two, at most every 30 seconds. Records stay queued while AI is unavailable. Connection failures retry with a bounded backoff. Managed servers bind to loopback with `OLLAMA_NO_CLOUD=1`, one loaded model, and one parallel request. A.R.C. requests validated local model names and does not alter cloud settings on an independently running server. No shared Ollama server is terminated on disconnect or reload.
+
+## Sidebar and Quick Actions
+
+The native **A.R.C. Quick Actions** view has **Open Dashboard**, **Ask A.R.C.**, and **Quick Actions**. Expand **AI Models** to see server status and selected models, choose a model with Quick Pick, or open the AI controls dropdown for load/unload, downloads, status, retries, and settings. The status bar opens Quick Actions too.
+
+Quick Actions groups Dashboard, AI Models, Memory and Search, Sessions and Handoffs, and Settings. Every choice invokes the corresponding existing command. Use the Command Palette (`Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux) and search for **ARC:**.
+
+**Open Dashboard** starts or reuses the existing Python dashboard and opens the default browser with the connected project selected. `arc.dashboard.url` supplies its actual local address and port (default `http://127.0.0.1:8765`). A health check verifies the database identity; a port serving another application/database produces an error instead of opening the wrong project. Shared services are not terminated on editor disconnect.
+
+Manual model activation uses the same SQLite model lease as indexing/chat. It unloads the other selected model first if that model is loaded; it does not assume hardware can keep both loaded. Model operations use a short idle lifetime. These manual controls supplement automatic startup, recording, indexing, sessions, and handoffs.
 
 Session records are persisted in SQLite as activity occurs. The next connection loads a **Session handoff** in Memory, even while AI is offline. First-time project registration and observation opt-in are still required.
 

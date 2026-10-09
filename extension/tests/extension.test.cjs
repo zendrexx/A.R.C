@@ -39,7 +39,7 @@ function setup({trusted = true, names = ['one'], hook, saved = {}, input = 'ques
       showQuickPick: async items => items[choose],
       showInputBox: async () => input,
       showTextDocument: async () => {},
-      registerTreeDataProvider: (_, view) => {memory = view; return disposable();},
+      registerTreeDataProvider: (id, view) => {if(id==='arc.memory')memory = view; return disposable();},
       registerWebviewViewProvider: (_, view) => {provider = view; return disposable();}
     },
     commands: {
@@ -58,10 +58,15 @@ function setup({trusted = true, names = ['one'], hook, saved = {}, input = 'ques
     get: (key, fallback) => db.has(key) ? db.get(key) : fallback,
     update: async (key, value) => {db.set(key, value);}
   }};
+  const controlsExports = {};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../out/controls.js'), 'utf8'), {
+    exports: controlsExports,
+    require: name => name === 'vscode' ? vscode : name === './ollama' ? require('../out/ollama') : name === './dashboard' ? require('../out/dashboard') : require(name)
+  });
   const exports = {};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../out/extension.js'), 'utf8'), {
     exports, process, setInterval: () => 1, clearInterval: () => {},
-    require: name => name === 'vscode' ? vscode : name === './backend' ? {Backend} : name === './model' ? require('../out/model') : require(name)
+    require: name => name === 'vscode' ? vscode : name === './backend' ? {Backend} : name === './model' ? require('../out/model') : name === './controls' ? controlsExports : name === './ollama' ? {validModelName:()=>true,OllamaManager:class {tick(){return Promise.resolve();} dispose(){} resetSetup(){}}} : require(name)
   });
   exports.activate(context);
   return {commands, errors, instances, messages, context, db,
@@ -271,5 +276,11 @@ test('chat cards show newest evidence first with separate date, 12-hour time and
   receive({data:{requestId:0,result:{answer_intro:'Recorded evidence',citations:[newer],notice:'urlopen error [WinError 10061]'}}});
   assert.match(elements.get('answer').textContent,/AI assistance is currently unavailable/);
   assert.doesNotMatch(elements.get('answer').textContent,/urlopen|WinError|10061/);
+  app.dispose();
+});
+
+test('every contributed Command Palette action has an activation handler', () => {
+  const app=setup();
+  for(const item of require('../package.json').contributes.commands)assert.ok(app.commands.has(item.command),item.command);
   app.dispose();
 });

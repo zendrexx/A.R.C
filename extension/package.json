@@ -212,6 +212,11 @@
       {
         "command": "arc.settings",
         "title": "ARC: Open Settings"
+      },
+      {
+        "command": "arc.modelActions",
+        "title": "ARC: AI Model Controls",
+        "icon": "$(hubot)"
       }
     ],
     "menus": {
@@ -224,6 +229,16 @@
         {
           "command": "arc.search",
           "when": "view == arc.memory",
+          "group": "navigation"
+        },
+        {
+          "command": "arc.dashboard",
+          "when": "view == arc.actions",
+          "group": "navigation"
+        },
+        {
+          "command": "arc.quickActions",
+          "when": "view == arc.actions",
           "group": "navigation"
         }
       ]

@@ -66,6 +66,10 @@ def test_dashboard_project_views_and_authorized_controls(sample_repo, tmp_path):
         assert "A.R.C." in html and token != "__ARC_REQUEST_TOKEN__"
         assert "function loadOverview" in request(base, "/app.js")[1]
         assert ".app-shell" in request(base, "/style.css")[1]
+        import hashlib
+        health = request(base, '/api/health')[1]
+        assert health['service'] == 'arc-dashboard'
+        assert health['database_id'] == hashlib.sha256(str(database.resolve()).encode()).hexdigest()
 
         query = {"project": str(sample_repo)}
         assert request(base, "/api/projects")[1][0]["path"] == str(sample_repo)

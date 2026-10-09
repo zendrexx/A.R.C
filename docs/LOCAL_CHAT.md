@@ -2,8 +2,11 @@
 
 Install Ollama once from https://ollama.com/download/windows, then connect your
 project in A.R.C. The extension starts installed Ollama in the background if
-needed and asks once before downloading `all-minilm` for semantic memory and
-`qwen3:1.7b` for conversational answers. Normal use needs no Terminal commands.
+needed and asks once before downloading the selected embedding model (default
+`all-minilm`). Choose an installed conversational model with **ARC: Select AI
+Model** in the sidebar's **AI Models** section or Command Palette. No chat model
+is assumed. **ARC: Download Model** offers a confirmed download if you need one.
+Normal use needs no Terminal commands.
 Automatic observation remains a separate initial opt-in. Approved projects
 reconnect on the next VS Code startup and pending records are indexed automatically.
 

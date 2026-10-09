@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { Backend } from './backend';
 import { memoryRows, Row } from './model';
+import { OllamaManager, validModelName } from './ollama';
+import { installControls } from './controls';
 
 const chatActions = [
   {command: 'arc.createProject', label: 'Register this project', pattern: /\b(create|register|initialize|init)\b.*\bproject\b/i},
@@ -39,6 +41,9 @@ class MemoryView implements vscode.TreeDataProvider<Row>, vscode.Disposable {
 
 export function activate(context: vscode.ExtensionContext) {
   const memory = new MemoryView();
+  const actions = new MemoryView();
+  let pendingIndex = 0;
+  let aiStatus = 'Checking local memory';
   let backend: Backend | undefined;
   let selected: vscode.WorkspaceFolder | undefined;
   let selectedRoot: string | undefined;
@@ -49,7 +54,7 @@ export function activate(context: vscode.ExtensionContext) {
   let timer: ReturnType<typeof setInterval> | undefined;
   let refreshPending = false;
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
-  status.text = '$(database) A.R.C.: disconnected'; status.command = 'arc.connect'; status.show();
+  status.text = '$(database) A.R.C.: disconnected'; status.command = 'arc.quickActions'; status.show();
   const inspect = async (data: unknown) => {
     const doc = await vscode.workspace.openTextDocument({language: 'json', content: JSON.stringify(data, null, 2)});
     await vscode.window.showTextDocument(doc, {preview: true});
@@ -73,8 +78,9 @@ export function activate(context: vscode.ExtensionContext) {
     selectedRoot = state.project.path;
     state.observer = {...observer, running: current.observing, error: current.observerError};
     state.handoff = handoff;
+    pendingIndex = state.index.pending_records;
     memory.set(memoryRows(state)); status.text = `$(database) A.R.C.: ${state.project.name}`;
-    status.tooltip = `Collection: ${observer.enabled ? observer.paused ? 'paused' : current.observing ? 'observing' : 'worker stopped' : 'disabled'} · ${state.index.pending_records} pending records`;
+    status.tooltip = `Collection: ${observer.enabled ? observer.paused ? 'paused' : current.observing ? 'observing' : 'worker stopped' : 'disabled'} · ${state.index.pending_records} pending records · ${aiStatus}`;
   };
   const pushAiStatus = async () => {
     const view = chatView; if (!view) return;
@@ -102,6 +108,34 @@ export function activate(context: vscode.ExtensionContext) {
       try { return await action(...args); } catch (error) { vscode.window.showErrorMessage(String(error instanceof Error ? error.message : error)); return false; }
     }));
   };
+  const permissions = context.globalState || context.workspaceState;
+  const ollama = new OllamaManager({
+    autoStart:()=>vscode.workspace.getConfiguration('arc').get<boolean>('ollama.autoStart',true),
+    models:()=>{const config=vscode.workspace.getConfiguration('arc');return [config.get<string>('models.embedding')||'all-minilm',config.get<string>('models.chat')||''];},
+    consent:async model=>{
+      const key=`ollama.download.${model}`;const saved=permissions.get<boolean>(key);
+      if(saved!==undefined)return saved;
+      const answer=await vscode.window.showInformationMessage(`Download ${model} for local AI? This uses internet access and disk space. Project records stay local.`,{modal:true},'Download');
+      await permissions.update(key,answer==='Download');return answer==='Download';
+    },
+    notify:(text,ready=false)=>{
+      aiStatus=text;void controls.status();
+      if(backend)void chatView?.webview.postMessage({action:'ai',ready,model:vscode.workspace.getConfiguration('arc').get<string>('models.chat')||''});
+    },
+    index:async()=>{
+      const current=backend;if(!current||current.busy||current.observing||pendingIndex<=0)return;
+      await current.request(['index','--limit','2']);if(current===backend)await refresh();
+    }
+  });
+  context.subscriptions.push(ollama);
+  const controls=installControls({register,backend:requireBackend,inspect,refresh,
+    retry:async()=>{ollama.resetSetup();await ollama.tick();},rows:rows=>actions.set(rows)});
+  register('arc.setupLocalAI',async()=>{
+    const config=vscode.workspace.getConfiguration('arc');
+    for(const model of [config.get<string>('models.embedding')||'all-minilm',config.get<string>('models.chat')||''])
+      if(model)await permissions.update(`ollama.download.${model}`,undefined);
+    ollama.resetSetup();if(backend)await ollama.tick();
+  });
   const pickFolder = async (title: string) => {
     const folders = vscode.workspace.workspaceFolders?.filter(f => f.uri.scheme === 'file') ?? [];
     if (!folders.length) throw new Error('Open a local project folder first.');
@@ -123,7 +157,10 @@ export function activate(context: vscode.ExtensionContext) {
     }
     const database = config.get<string>('databasePath') || process.env.ARC_DB || localDatabase;
     if (database && !path.isAbsolute(database)) throw new Error('A.R.C. databasePath must be absolute.');
-    return new Backend(python, folder.uri.fsPath, database);
+    const embedding=config.get<string>('models.embedding')||'all-minilm';
+    const chatModel=config.get<string>('models.chat')||'';
+    if(!validModelName(embedding)||chatModel&&!validModelName(chatModel))throw new Error('Choose valid local models in A.R.C. settings.');
+    return new Backend(python, folder.uri.fsPath, database,{ARC_EMBEDDING_MODEL:embedding,ARC_CHAT_MODEL:chatModel});
   };
   const approve = async (choice: vscode.WorkspaceFolder, message: string, action: string) => {
     const approved = context.workspaceState.get<string[]>('approvedProjects', []);
@@ -158,6 +195,7 @@ export function activate(context: vscode.ExtensionContext) {
     const observer = await connected.request(['observer', 'status']);
     if (connectToken !== generation) return;
     if (observer.enabled) connected.startObserver();
+    void ollama.tick();
     timer = setInterval(async () => {
       if (refreshPending) return;
       refreshPending = true;
@@ -167,6 +205,7 @@ export function activate(context: vscode.ExtensionContext) {
           catch { await connected.request(['workspace', 'open', workspaceOwner, '--pid', String(process.pid)]); }
         }
         await refresh();
+        void ollama.tick();
       } catch { /* Interactive commands show errors; polling retries. */ }
       finally {refreshPending = false;}
     }, 10000);
@@ -302,7 +341,7 @@ export function activate(context: vscode.ExtensionContext) {
       view.webview.options = {enableScripts: true, localResourceRoots: []};
       view.webview.html = `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><style nonce="${nonce}">
         body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);padding:16px;line-height:1.5} h1{font-size:21px;margin:8px 0} .muted{color:var(--vscode-descriptionForeground)} .card{border:1px solid var(--vscode-widget-border);border-radius:8px;padding:14px;margin:18px 0} button{width:100%;padding:9px;margin:5px 0;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:0;cursor:pointer} button:hover{background:var(--vscode-button-hoverBackground)} button:focus-visible{outline:2px solid var(--vscode-focusBorder)} textarea{box-sizing:border-box;width:100%;padding:9px;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--vscode-input-border)}
-      </style></head><body><p class="muted">A.R.C. / LOCAL MEMORY</p><h1>Pick up where you left off.</h1><p>Find the evidence behind your project's progress.</p><div class="card"><label for="question">Ask about your project</label><textarea id="question" rows="3" maxlength="2000" placeholder="Ask about changes, or type Enable observation"></textarea><button id="ask">Ask A.R.C.</button><p id="ai" class="muted" role="status"></p><button id="more" hidden>Load older history</button><p id="answer" role="status" aria-live="polite" style="white-space:pre-wrap"></p><div id="sources"></div></div><button id="search">Search memory</button><button id="connect">Connect project</button><p class="muted">Local Ollama answers from recorded evidence. Action requests offer buttons. Commands are also available through Ctrl+Shift+P.</p><script nonce="${nonce}">
+      </style></head><body><p class="muted">A.R.C. / LOCAL MEMORY</p><button id="dashboard">Open Dashboard</button><button id="quickActions">Quick Actions</button><h1>Pick up where you left off.</h1><p>Find the evidence behind your project's progress.</p><div class="card"><label for="question">Ask about your project</label><textarea id="question" rows="3" maxlength="2000" placeholder="Ask about changes, or type Enable observation"></textarea><button id="ask">Ask A.R.C.</button><p id="ai" class="muted" role="status"></p><button id="more" hidden>Load older history</button><p id="answer" role="status" aria-live="polite" style="white-space:pre-wrap"></p><div id="sources"></div></div><button id="search">Search memory</button><button id="connect">Connect project</button><p class="muted">Local Ollama answers from recorded evidence. Action requests offer buttons. Commands are also available through Ctrl+Shift+P.</p><script nonce="${nonce}">
       const vscode=acquireVsCodeApi(); let offset=0; let snapshot; let question=''; let requestId=0; let aiReady=false;
       const sourceStyle=document.createElement('style');sourceStyle.setAttribute('nonce','${nonce}');sourceStyle.textContent='#sources{display:flex;flex-direction:column;gap:14px;margin-top:18px}.source-card{display:flex;flex-direction:column;align-items:stretch;gap:8px;text-align:left;width:100%;margin:0;padding:16px;border:1px solid var(--vscode-widget-border,var(--vscode-input-border));border-radius:8px;background:var(--vscode-editor-background);color:var(--vscode-foreground);line-height:1.5;overflow-wrap:anywhere}.source-card:hover{background:var(--vscode-list-hoverBackground)}.source-date{font-weight:600}.source-time{color:var(--vscode-descriptionForeground)}.source-details{display:flex;flex-direction:column;gap:6px;margin:4px 0}.source-kind{font-weight:600}.source-action{color:var(--vscode-textLink-foreground);font-size:12px;margin-top:6px}';document.head.appendChild(sourceStyle);
       function renderSources(citations){
@@ -324,12 +363,12 @@ export function activate(context: vscode.ExtensionContext) {
           card.addEventListener('click',()=>vscode.postMessage({action:'event',id:source.id}));container.appendChild(card);
         }
       }
-      for(const action of ['search','connect'])document.getElementById(action).addEventListener('click',()=>vscode.postMessage({action}));
+      for(const action of ['search','connect','dashboard','quickActions'])document.getElementById(action).addEventListener('click',()=>vscode.postMessage({action}));
       function ask(next){question=next?question:document.getElementById('question').value.trim();if(!question)return;offset=next?offset:0;snapshot=next?snapshot:undefined;requestId++;document.getElementById('ask').disabled=true;document.getElementById('more').hidden=true;document.getElementById('answer').textContent='Reading local evidence…';document.getElementById('sources').replaceChildren();vscode.postMessage({action:'ask',question,offset,snapshot,requestId,timezoneOffset:-new Date().getTimezoneOffset(),keywordOnly:!aiReady});}
       document.getElementById('ask').addEventListener('click',()=>ask(false)); document.getElementById('more').addEventListener('click',()=>ask(true));
       window.addEventListener('message',({data})=>{
         if(data.action==='reset'){requestId++;aiReady=false;document.getElementById('ask').disabled=false;document.getElementById('ai').textContent='';document.getElementById('answer').textContent='Connect a project to ask about its evidence.';document.getElementById('sources').replaceChildren();document.getElementById('more').hidden=true;return;}
-        if(data.action==='ai'){aiReady=data.ready===true;document.getElementById('ai').textContent=aiReady?'Local model ready: '+(data.model||'qwen3:1.7b'):(data.reason?'Keyword evidence mode — '+data.reason:'Connect a project to check local AI.');return;}
+        if(data.action==='ai'){aiReady=data.ready===true;document.getElementById('ai').textContent=aiReady?'Local model ready: '+(data.model||'selected model'):(data.reason?'Keyword evidence mode — '+data.reason:'Connect a project to check local AI.');return;}
         if(data.requestId!==requestId)return;
         document.getElementById('ask').disabled=false;
         const result=data.result;const citations=result?.citations||[];
@@ -344,7 +383,7 @@ export function activate(context: vscode.ExtensionContext) {
       void pushAiStatus();
       const listener = view.webview.onDidReceiveMessage(message => {
         if (message?.action === 'command' && chatActions.some(action => action.command === message.command)) void vscode.commands.executeCommand(message.command);
-        if (message?.action === 'search' || message?.action === 'connect') void vscode.commands.executeCommand(`arc.${message.action}`);
+        if (['search','connect','dashboard','quickActions'].includes(message?.action)) void vscode.commands.executeCommand(`arc.${message.action}`);
         if (message?.action === 'event' && typeof message.id === 'string') void vscode.commands.executeCommand('arc.openEvent', message.id);
         if (message?.action === 'ask' && typeof message.question === 'string' && message.question.length <= 2000 && Number.isInteger(message.offset) && message.offset >= 0 && Number.isInteger(message.timezoneOffset) && (message.snapshot === undefined || Number.isInteger(message.snapshot) && message.snapshot >= 0)) {
           const current = backend; const token = generation;
@@ -388,9 +427,13 @@ export function activate(context: vscode.ExtensionContext) {
       view.onDidDispose(() => {listener.dispose(); if (chatView === view) chatView = undefined;});
     }
   };
-  context.subscriptions.push(memory, status, vscode.window.registerTreeDataProvider('arc.memory', memory), vscode.window.registerWebviewViewProvider('arc.chat', chat),
+  context.subscriptions.push(memory, actions, status, vscode.window.registerTreeDataProvider('arc.actions', actions), vscode.window.registerTreeDataProvider('arc.memory', memory), vscode.window.registerWebviewViewProvider('arc.chat', chat),
     vscode.workspace.onDidChangeWorkspaceFolders(() => { if (selected && !vscode.workspace.workspaceFolders?.some(f => f.uri.toString() === selected!.uri.toString())) disconnect(); }),
-    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('arc')) disconnect(); }),
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if(!e.affectsConfiguration('arc'))return;
+      if(e.affectsConfiguration('arc.pythonPath')||e.affectsConfiguration('arc.databasePath')||e.affectsConfiguration('arc.models'))disconnect();
+      else{controls.updateRows();ollama.resetSetup();if(backend)void ollama.tick();}
+    }),
     {dispose: disconnect});
   const previous = context.workspaceState.get<string>('selectedProject');
   const approved = context.workspaceState.get<string[]>('approvedProjects', []);
