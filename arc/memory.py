@@ -3,6 +3,7 @@
 import json
 import math
 import re
+import unicodedata
 from dataclasses import asdict
 from typing import Protocol
 from urllib.error import HTTPError, URLError
@@ -81,6 +82,17 @@ def redact(text: str) -> str:
     return text[:2000]
 
 
+def normalize_index_text(text: str) -> str:
+    """Normalize the searchable copy without changing the evidence record."""
+    return " ".join(unicodedata.normalize("NFKC", text).split())[:2000]
+
+
+def _hit(event: dict, score: float) -> dict:
+    return asdict(SearchHit(event["id"], event["kind"], event["summary"],
+                            event["source_ref"], event["created_at"],
+                            round(score, 6)))
+
+
 class MemoryEngine:
     def __init__(self, store: Store, embedder: Embedder | None = None):
         self.store = store
@@ -90,35 +102,76 @@ class MemoryEngine:
         events = self.store.pending_embeddings(project_id, self.embedder.model)
         count = 0
         for event in events:
-            vector = self.embedder.embed(event["summary"])
+            vector = self.embedder.embed(normalize_index_text(event["summary"]))
             self.store.put_vector(event["id"], self.embedder.model, vector)
             count += 1
         return {"indexed": count, "model": self.embedder.model}
 
     def search(self, project_id: str, query: str, limit: int = 5,
-               allow_keyword_fallback: bool = True) -> dict:
+               allow_keyword_fallback: bool = True, kind: str | None = None,
+               keyword_only: bool = False, hybrid: bool = False) -> dict:
         if not query.strip():
             raise ValueError("Search query must not be empty")
+        if (keyword_only and (not allow_keyword_fallback or hybrid)) or (
+            hybrid and not allow_keyword_fallback
+        ):
+            raise ValueError("Choose only one of keyword-only, semantic-only, or hybrid search")
         limit = min(max(limit, 1), 20)
+        kind = kind.strip() if kind else None
+        counts = self.store.index_counts(project_id, self.embedder.model, kind)
+
+        def keyword_result(mode: str, reason: str | None = None) -> dict:
+            events = self.store.keyword_search(project_id, query, limit, kind)
+            result = {"mode": mode, "score_kind": "keyword_rank",
+                      **counts,
+                      "hits": [_hit(event, 1 / rank)
+                               for rank, event in enumerate(events, start=1)]}
+            if reason:
+                result["reason"] = reason
+            return result
+
+        if keyword_only:
+            return keyword_result("keyword")
         try:
             query_vector = self.embedder.embed(query)
         except EmbeddingUnavailable as error:
             if not allow_keyword_fallback:
                 raise
-            events = self.store.keyword_search(project_id, query, limit)
-            return {
-                "mode": "keyword_fallback", "reason": str(error),
-                "hits": [asdict(SearchHit(event["id"], event["kind"], event["summary"],
-                                          event["source_ref"], event["created_at"], 0.0))
-                         for event in events],
-            }
+            return keyword_result("keyword_fallback", str(error))
         ranked = []
-        for event, vector in self.store.vectors(project_id, self.embedder.model):
+        for event, vector in self.store.vectors(project_id, self.embedder.model, kind):
             similarity = cosine(query_vector, vector)
             if similarity >= 0:
-                ranked.append(SearchHit(event["id"], event["kind"], event["summary"],
-                                        event["source_ref"], event["created_at"],
-                                        round(similarity, 4)))
-        ranked.sort(key=lambda hit: hit.score, reverse=True)
-        return {"mode": "semantic", "model": self.embedder.model,
-                "hits": [asdict(hit) for hit in ranked[:limit]]}
+                ranked.append((event, similarity))
+        ranked.sort(key=lambda item: item[1], reverse=True)
+
+        notice = ("No indexed records for this search. Run 'arc index' first."
+                  if counts["indexed_records"] == 0 and counts["pending_records"] else None)
+        if not ranked and counts["indexed_records"] == 0 and allow_keyword_fallback:
+            return keyword_result("keyword_fallback", notice or "No records are indexed")
+
+        if not hybrid:
+            result = {"mode": "semantic", "model": self.embedder.model,
+                      "score_kind": "cosine", **counts,
+                      "hits": [_hit(event, score) for event, score in ranked[:limit]]}
+            if notice:
+                result["notice"] = notice
+            return result
+
+        # Reciprocal rank fusion makes exact FTS5 hits and paraphrase hits compete
+        # without treating cosine similarity or bm25 as a probability.
+        events_by_id: dict[str, dict] = {}
+        fused: dict[str, float] = {}
+        for rank, (event, _) in enumerate(ranked[:100], start=1):
+            events_by_id[event["id"]] = event
+            fused[event["id"]] = fused.get(event["id"], 0.0) + 1 / (60 + rank)
+        exact = self.store.keyword_search(project_id, query, 100, kind)
+        for rank, event in enumerate(exact, start=1):
+            events_by_id[event["id"]] = event
+            fused[event["id"]] = fused.get(event["id"], 0.0) + 1 / (60 + rank)
+        ordered = sorted(fused, key=lambda event_id: (
+            fused[event_id], events_by_id[event_id]["created_at"]), reverse=True)
+        return {"mode": "hybrid", "model": self.embedder.model,
+                "score_kind": "rrf", **counts,
+                "hits": [_hit(events_by_id[event_id], fused[event_id])
+                         for event_id in ordered[:limit]]}

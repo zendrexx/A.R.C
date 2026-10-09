@@ -17,14 +17,17 @@ def test_local_model_finds_a_paraphrased_incident(sample_repo, tmp_path):
     try:
         service.register_project(sample_repo)
         service.record_note(sample_repo, "error",
-                            "Postgres database connection timed out during startup")
+                            "SQLite migration failed because the users table did not exist")
         service.record_note(sample_repo, "decision",
                             "Choose a green color palette for the dashboard")
         assert service.index_memory(sample_repo)["indexed"] == 2
+        query = "Why did the database upgrade break?"
+        project_id = service.store.get_project(sample_repo)["id"]
+        assert service.store.keyword_search(project_id, query, 5) == []
         result = service.search_memory(sample_repo,
-                                       "Why could the app not connect to its database?",
+                                       query,
                                        allow_keyword_fallback=False)
         assert result["mode"] == "semantic"
-        assert "database connection" in result["hits"][0]["summary"].lower()
+        assert "sqlite migration" in result["hits"][0]["summary"].lower()
     finally:
         service.close()

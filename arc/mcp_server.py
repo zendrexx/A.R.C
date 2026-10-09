@@ -40,11 +40,16 @@ def arc_get_project_state() -> dict:
 
 
 @mcp.tool(annotations=READ_ONLY)
-def arc_search_memory(query: str, limit: int = 5) -> dict:
-    """Find project memories by local semantic search, with labelled keyword fallback."""
+def arc_search_memory(query: str, limit: int = 5,
+                      kind: str | None = None, keyword_only: bool = False,
+                      semantic_only: bool = False, hybrid: bool = False) -> dict:
+    """Search project evidence with optional event type and retrieval mode."""
     service, project = _service()
     try:
-        return service.search_memory(project, query, limit)
+        return service.search_memory(project, query, limit,
+                                     allow_keyword_fallback=not semantic_only,
+                                     kind=kind, keyword_only=keyword_only,
+                                     hybrid=hybrid)
     finally:
         service.close()
 

@@ -33,7 +33,9 @@ arc search "Why did the database upgrade crash?" --semantic-only
 arc state
 ```
 
-`arc index` sends the selected note summaries only to Ollama on `127.0.0.1`. The search response must say `"mode": "semantic"`. If Ollama is unavailable, ordinary `arc search` labels its results `keyword_fallback`; `--semantic-only` returns an error instead. Run `arc index` again after recording new events.
+`arc index` sends the selected event summaries only to Ollama on `127.0.0.1`. Default search keeps cosine-ranked semantic results and says `"mode": "semantic"`. If Ollama is unavailable or records have not been indexed, ordinary search labels its FTS5 results `keyword_fallback`; `--semantic-only` instead requires the model and reports when indexing is needed. Indexing is still manual in this phase.
+
+Use `arc search "database upgrade" --kind error` to filter by event type. Use `--keyword-only` to search without Ollama, or `--hybrid` to combine semantic and exact keyword rankings. Results include indexed and pending record counts; `score_kind` identifies how each ranking score was computed, and scores are not probabilities.
 
 ## Record real project progress
 
@@ -81,7 +83,7 @@ arc index
 arc search "Why did the database upgrade break?" --semantic-only
 ```
 
-The search result should say `"mode": "semantic"` and include the recorded migration error with an `arc:event/<id>` reference. Repeat the search after disconnecting Wi-Fi to verify the local offline path. Once this passes, connect MCP using the section below and try a fresh Codex session against this test database. Those two user-run trials remain open in the development plan.
+The search result should say `"mode": "semantic"` and include the recorded migration error with an `arc:event/<id>` reference. Repeat the search after disconnecting Wi-Fi to verify the local offline path. The fresh Codex MCP trial succeeded on 2026-10-09; the disconnected-network trial remains open.
 
 ## Connect to Codex
 
@@ -105,7 +107,7 @@ The [official Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp) docume
 python -m pytest -q
 ```
 
-The tests cover unverified claims, current versus stale test evidence, checkpoint freshness, privacy filtering, session grouping and migration, semantic ranking, keyword fallback, and a real stdio MCP client/server round trip. The live-model test runs when local Ollama and `all-minilm` are available; otherwise it skips. A physical disconnected-network trial and actual fresh Codex-session handoff remain to be recorded as hackathon evidence.
+The tests cover unverified claims, current versus stale test evidence, checkpoint freshness, privacy filtering, session grouping and migration, semantic ranking, hybrid and filtered retrieval, keyword fallback, and a real stdio MCP client/server round trip. The live-model test runs when local Ollama and `all-minilm` are available; otherwise it skips. Run `python -m scripts.evaluate_retrieval` for the fixed seven-record semantic-versus-keyword comparison. A physical disconnected-network trial remains to be recorded as hackathon evidence.
 
 ## Two developer boundary
 

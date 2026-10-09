@@ -41,5 +41,11 @@ def test_new_agent_can_call_project_state_over_stdio(sample_repo, tmp_path):
                 )
                 assert history.is_error is False
                 assert evidence["id"] in str(history)
+                searched = await session.call_tool(
+                    "arc_search_memory",
+                    {"query": "login", "kind": "note", "keyword_only": True},
+                )
+                assert searched.is_error is False
+                assert evidence["id"] in str(searched)
 
     asyncio.run(round_trip())

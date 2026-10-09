@@ -201,9 +201,11 @@ class ArcService:
         return self.memory.index_pending(self._project(path)["id"])
 
     def search_memory(self, path: Path, query: str, limit: int = 5,
-                      allow_keyword_fallback: bool = True) -> dict:
+                      allow_keyword_fallback: bool = True,
+                      kind: str | None = None, keyword_only: bool = False,
+                      hybrid: bool = False) -> dict:
         return self.memory.search(self._project(path)["id"], query, limit,
-                                  allow_keyword_fallback)
+                                  allow_keyword_fallback, kind, keyword_only, hybrid)
 
     def recent_changes(self, path: Path, limit: int = 10) -> list[dict]:
         project = self._project(path)

@@ -8,6 +8,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+SEARCH_STOPWORDS = frozenset({
+    "a", "an", "and", "are", "at", "be", "because", "by", "could", "did",
+    "do", "does", "for", "from", "how", "in", "is", "it", "of", "on",
+    "our", "the", "their", "this", "to", "was", "were", "what", "when",
+    "where", "why", "with", "would",
+})
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -238,11 +245,13 @@ class Store:
         )
         self.connection.commit()
 
-    def vectors(self, project_id: str, model: str) -> list[tuple[dict, list[float]]]:
+    def vectors(self, project_id: str, model: str,
+                kind: str | None = None) -> list[tuple[dict, list[float]]]:
         rows = self.connection.execute("""
             SELECT e.*, v.values_json FROM events e JOIN vectors v ON e.id=v.event_id
-            WHERE e.project_id=? AND v.model=? ORDER BY e.rowid DESC
-        """, (project_id, model))
+            WHERE e.project_id=? AND v.model=? AND (? IS NULL OR e.kind=?)
+            ORDER BY e.rowid DESC
+        """, (project_id, model, kind, kind))
         result = []
         for row in rows:
             event = self._event(row)
@@ -250,15 +259,29 @@ class Store:
             result.append((event, values))
         return result
 
-    def keyword_search(self, project_id: str, query: str, limit: int) -> list[dict]:
-        tokens = re.findall(r"[\w]+", query, flags=re.UNICODE)[:10]
+    def index_counts(self, project_id: str, model: str,
+                     kind: str | None = None) -> dict[str, int]:
+        row = self.connection.execute("""
+            SELECT COUNT(*) AS total, COUNT(v.event_id) AS indexed
+            FROM events e LEFT JOIN vectors v ON e.id=v.event_id AND v.model=?
+            WHERE e.project_id=? AND (? IS NULL OR e.kind=?)
+        """, (model, project_id, kind, kind)).fetchone()
+        total = int(row["total"])
+        indexed = int(row["indexed"])
+        return {"indexed_records": indexed, "pending_records": total - indexed}
+
+    def keyword_search(self, project_id: str, query: str, limit: int,
+                       kind: str | None = None) -> list[dict]:
+        tokens = [token for token in re.findall(r"[\w]+", query, flags=re.UNICODE)
+                  if token.lower() not in SEARCH_STOPWORDS][:10]
         if not tokens:
             return []
         expression = " OR ".join(f'"{token}"' for token in tokens)
         rows = self.connection.execute("""
             SELECT e.* FROM event_fts f JOIN events e ON e.id=f.event_id
-            WHERE e.project_id=? AND event_fts MATCH ? ORDER BY bm25(event_fts) LIMIT ?
-        """, (project_id, expression, limit))
+            WHERE e.project_id=? AND (? IS NULL OR e.kind=?) AND event_fts MATCH ?
+            ORDER BY bm25(event_fts) LIMIT ?
+        """, (project_id, kind, kind, expression, limit))
         return [self._event(row) for row in rows]
 
     def save_checkpoint(self, project_id: str, fingerprint: str, payload: dict) -> dict:

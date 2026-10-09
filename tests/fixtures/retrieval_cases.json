@@ -1,0 +1,19 @@
+{
+  "incidents": [
+    {"key": "schema", "kind": "error", "summary": "SQLite migration failed because the users table did not exist"},
+    {"key": "auth", "kind": "error", "summary": "Login requests returned HTTP 401 after the access token expired"},
+    {"key": "ui", "kind": "error", "summary": "Image decoding on the main thread froze the dashboard"},
+    {"key": "build", "kind": "error", "summary": "Build stopped because package lock pinned an unavailable dependency"},
+    {"key": "privacy", "kind": "decision", "summary": "Exclude .env files from project memory to avoid storing secrets"},
+    {"key": "cache", "kind": "attempt", "summary": "Clearing the dependency cache did not resolve the failing install"},
+    {"key": "theme", "kind": "decision", "summary": "Use a green accent color for the dashboard"}
+  ],
+  "queries": [
+    {"key": "schema", "query": "Why did the database upgrade break?"},
+    {"key": "auth", "query": "Why were sign-ins rejected when credentials got old?"},
+    {"key": "ui", "query": "What made the interface hang while loading pictures?"},
+    {"key": "build", "query": "Why couldn't the installer find the required library?"},
+    {"key": "privacy", "query": "Why do we ignore secret configuration files?"}
+  ],
+  "unrelated_query": "How long should bread bake in the oven?"
+}

@@ -62,7 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
     search = commands.add_parser("search", help="search local memory")
     search.add_argument("query")
     search.add_argument("--limit", type=int, default=5)
-    search.add_argument("--semantic-only", action="store_true")
+    search.add_argument("--kind", help="only return this event type, e.g. error or decision")
+    search_modes = search.add_mutually_exclusive_group()
+    search_modes.add_argument("--semantic-only", action="store_true")
+    search_modes.add_argument("--keyword-only", action="store_true")
+    search_modes.add_argument("--hybrid", action="store_true")
     commands.add_parser("state", help="show evidence-backed project state")
     commands.add_parser("event", help="inspect one evidence record").add_argument("event_id")
     commands.add_parser("checkpoint", help="store an unconfirmed handoff checkpoint")
@@ -115,7 +119,9 @@ def main(argv: list[str] | None = None) -> int:
             result = service.index_memory(project_path)
         elif args.command == "search":
             result = service.search_memory(project_path, args.query, args.limit,
-                                           allow_keyword_fallback=not args.semantic_only)
+                                           allow_keyword_fallback=not args.semantic_only,
+                                           kind=args.kind, keyword_only=args.keyword_only,
+                                           hybrid=args.hybrid)
         elif args.command == "state":
             result = service.project_state(project_path)
         elif args.command == "event":

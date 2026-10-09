@@ -774,7 +774,7 @@ Developer 2:
 - [x] Create a local SQLite database.
 - [x] Test Git state and changed-path collection. The prototype records paths and fingerprints, not raw diffs.
 - [x] Create a minimal MCP server.
-- [ ] Confirm Codex can call a local tool in a fresh session. An automated MCP client completed a stdio round trip; Codex itself has not been connected yet.
+- [x] Confirm Codex can call a local tool in a fresh session. The user confirmed retrieval of the recorded test session through the configured MCP server on 2026-10-09.
 
 ### Deliverables
 
@@ -785,7 +785,7 @@ Developer 2:
 
 ### Completion Gate
 
-A new coding session can request a stored record from the local MCP server. **Open: fresh Codex-session test.**
+A new coding session can request a stored record from the local MCP server. **Passed: user-confirmed fresh Codex-session retrieval on 2026-10-09.**
 
 An offline semantic search must return relevant results from previously indexed sample incidents. **Open: disconnected-network test.**
 
@@ -820,7 +820,7 @@ Build reliable, permissioned project-event recording.
 
 ### Completion Gate
 
-The application records a meaningful sequence of real project changes and test results without requiring AI-generated descriptions. **Open: record and review an end-to-end sequence from a real development session.**
+The application records a meaningful sequence of real project changes and test results without requiring AI-generated descriptions. **Passed for the explicit-recording prototype:** session `0f5c0c8e905a` captured real changed paths and a passing `pytest` run from this repository; the user retrieved that session through MCP. Automatic observation remains future work.
 
 ---
 
@@ -834,12 +834,12 @@ Make project history searchable by meaning.
 
 ### Tasks
 
-- [ ] Normalize stored event descriptions consistently. Basic redaction and length limits exist.
+- [x] Normalize the searchable copy of event descriptions for indexing while preserving the original evidence text.
 - [x] Generate local embeddings through Ollama.
 - [x] Index recorded event summaries in SQLite by event ID.
 - [x] Build cosine similarity search over indexed events.
-- [ ] Filter by project and event type. Project scoping works; event-type filtering remains open.
-- [ ] Combine exact search with semantic search. FTS5 currently serves as a labelled fallback when embeddings are unavailable.
+- [x] Filter by project and event type in semantic, keyword, and hybrid search.
+- [x] Combine FTS5 and semantic results with reciprocal rank fusion when requested; retain the original semantic default and labelled keyword fallback when embeddings are unavailable or absent.
 - [x] Link retrieved records to resolvable source evidence.
 
 ### Deliverables
@@ -851,7 +851,7 @@ Make project history searchable by meaning.
 
 ### Completion Gate
 
-Given an unseen paraphrased query, local AI retrieves a relevant event that ordinary exact keyword matching misses. **Open: predefined retrieval evaluation against the keyword baseline.**
+Given an unseen paraphrased query, local AI retrieves a relevant event that ordinary exact keyword matching misses. **Passed in a small predefined local-model evaluation:** semantic search ranked 4/5 expected incidents first versus 1/5 for keyword search; one dependency case ranked second. These synthetic results are an initial check, not general accuracy evidence.
 
 Results must remain available offline. **Open: disconnected-network trial.**
 
