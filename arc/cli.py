@@ -117,6 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
     observer = commands.add_parser('observer', help='control opt-in local collection')
     observer.add_argument('action', choices=['status', 'enable', 'pause', 'resume',
                                            'disable', 'poll', 'start', 'stop'])
+    commands.add_parser('observer-watch', help='run the extension observer until stopped')
     watch = commands.add_parser('watch', help='run an enabled project observer until stopped')
     watch.add_argument('--interval', type=float, default=5,
                        help='seconds between Git polls (default: 5)')
@@ -176,7 +177,10 @@ def main(argv: list[str] | None = None) -> int:
                 result = stop_worker(service, project_path)
             else:
                 result = control(service, project_path, args.action)
-        elif args.command == 'watch':
+        elif args.command in ('observer-watch', 'watch'):
+            from arc.observer import watch
+            watch(service, project_path, interval=getattr(args, 'interval', 5))
+            return 0
             from arc.observer import watch
             watch(service, project_path, interval=args.interval)
             return 0

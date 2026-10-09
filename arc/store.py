@@ -391,6 +391,18 @@ class Store:
         ).fetchone()
         return int(row[0])
 
+    def timeline_legacy(self, project_id: str, limit: int, offset: int = 0,
+                 kind: str | None = None) -> tuple[list[dict], int]:
+        filter_sql = "project_id=? AND (? IS NULL OR kind=?)"
+        arguments = (project_id, kind, kind)
+        total = int(self.connection.execute(
+            f"SELECT COUNT(*) FROM events WHERE {filter_sql}", arguments
+        ).fetchone()[0])
+        rows = self.connection.execute(
+            f"SELECT * FROM events WHERE {filter_sql} ORDER BY rowid DESC LIMIT ? OFFSET ?",
+            (*arguments, limit, offset),
+        )
+        return [self._event(row) for row in rows], total
     def create_incident(self, project_id: str, error_event_id: str,
                         cause: str | None = None,
                         cause_event_id: str | None = None) -> dict:
