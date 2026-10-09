@@ -153,7 +153,7 @@ test('disconnect discards an outstanding chat answer and clears its sources', as
   await app.commands.get('arc.disconnect')();
   finish({answer:'Old project answer',citations:[]});
   await tick();
-  assert.deepEqual(app.messages.map(m => m.action), ['reset']);
+  assert.deepEqual(app.messages.filter(m => m.action !== 'ai').map(m => m.action), ['reset']);
   app.dispose();
 });
 test('create registers the workspace folder then connects it', async () => {

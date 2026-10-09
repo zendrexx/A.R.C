@@ -55,3 +55,6 @@ Do not use the existing 62-second silent backup as proof of this segment: it sho
 - Closing caption: **Current prototype: manual capture and indexing**
 
 Record the terminal and dashboard at a readable size. Confirm the final file plays locally; keep a copy on the demo Mac. The [Phase 7 shot list](PHASE7_DEMO.md) has the longer capture path, and [TEST_RESULTS.md](TEST_RESULTS.md) lists which claims still need recorded evidence.
+
+
+ano to script bato pang bading

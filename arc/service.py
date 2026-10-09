@@ -618,14 +618,17 @@ class ArcService:
         return self.memory.index_pending(self._project(path)["id"])
 
     def local_ai_status(self) -> dict:
+        from arc.chat import OllamaChat
         model = self.memory.embedder.model
         try:
             vector = self.memory.embedder.embed("A.R.C. local AI status")
-            return {"status": "ready", "model": model,
-                    "vector_dimensions": len(vector), "local_only": True}
+            status = {"status": "ready", "model": model,
+                      "vector_dimensions": len(vector), "local_only": True}
         except EmbeddingUnavailable as error:
-            return {"status": "unavailable", "model": model,
-                    "reason": str(error), "local_only": True}
+            status = {"status": "unavailable", "model": model,
+                      "reason": str(error), "local_only": True}
+        status["chat"] = OllamaChat().probe()
+        return status
 
     def project_timeline(self, path: Path, limit: int = 40, offset: int = 0,
                          kind: str | None = None) -> dict:
@@ -633,6 +636,13 @@ class ArcService:
         limit = min(max(limit, 1), 100)
         offset = max(offset, 0)
         page = self.store.timeline(project["id"], limit, offset, kind)
+<<<<<<< HEAD
+=======
+        if isinstance(page, tuple):
+            events, total = page
+        else:
+            events, total = page["events"], page["total_events"]
+>>>>>>> 41fec2987a1aa4127cfad99200827343cc54cd7e
         return {"events": [{"id": event["id"], "kind": event["kind"],
                             "summary": event["summary"], "source": event["source"],
                             "source_ref": event["source_ref"],

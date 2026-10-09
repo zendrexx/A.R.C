@@ -2,6 +2,7 @@
   "name": "arc-memory", "displayName": "A.R.C. — Project Memory",
   "description": "Local evidence, tasks and continuity in your editor.",
   "version": "0.1.0", "publisher": "arc-local",
+  "repository": {"type": "git", "url": "https://github.com/zendrexx/A.R.C.git", "directory": "extension"},
   "engines": {"vscode": "^1.90.0"}, "main": "./out/extension.js",
   "categories": ["Other"],
   "capabilities": {"untrustedWorkspaces": {"supported": false}, "virtualWorkspaces": false},

@@ -1,6 +1,6 @@
 # A.R.C. VS Code extension
 
-Phase 11 integration: a native Memory tree and a local Chat view backed by the Python CLI and shared SQLite database. Automatic observation is opt-in. Chat quotes recorded evidence and optionally uses local `qwen3:1.7b` to select sources.
+Phase 11 integration: a native Memory tree and a local Chat view backed by the Python CLI and shared SQLite database. Automatic observation is opt-in. Chat quotes recorded evidence and requires local `qwen3:1.7b` to select sources; the view reports when Ollama or the model is missing.
 
 ## Run
 
@@ -16,7 +16,7 @@ Memory includes project/session status, observer state, index counts, tasks and 
 
 An enabled observer polls every five seconds and indexes two pending summaries per retry. Pause stops collection; resume discards the paused interval. Disable stops the worker. Disconnect or closing the workspace cancels requests and terminates the observer process tree. Reopening a previously approved single-folder workspace reconnects and restores persisted records. An explicit disconnect clears that automatic reconnect selection.
 
-Ask questions in Chat and use **Inspect** buttons to open each cited event. Today/yesterday use the editor's current local UTC offset. Older timeline pages have a continuation button. Chat renders evidence as text with a restrictive content-security policy; it cannot execute commands or change task verification. Model outages fall back to recorded evidence. Free-form generated summaries, external task/test adapters, daylight-saving-aware historical timezone rules, and a dedicated Ollama health view are not implemented.
+Ask questions in Chat and use **Inspect** buttons to open each cited event. Today/yesterday use the editor's current local UTC offset. Older timeline pages have a continuation button. Chat renders evidence as text with a restrictive content-security policy; it cannot execute commands or change task verification. If the local model requirement is unmet, the view reports it and asking is blocked; the CLI keeps a `--keyword-only` escape. Free-form generated summaries, external task/test adapters, daylight-saving-aware historical timezone rules, and a dedicated Ollama health view are not implemented.
 
 `npm test` compiles the extension and checks its backend and activation lifecycle with mocks. Run `python -m scripts.validate_phase12` from the repository root after installing the current Python package to exercise a disposable project, real observer, CLI, and fresh MCP session. Extension-host visual checks, real-model quality, physical offline checks, and target-Mac validation remain open; see [the validation checklist](../docs/PHASE_12_VALIDATION.md).
 

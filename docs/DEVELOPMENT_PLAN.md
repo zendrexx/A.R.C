@@ -14,7 +14,7 @@
 
 **Project Status:** Phases 0–5 CLI/MCP prototype working; the Phase 5 incident-retrieval gate passed in controlled local-model tests; broader real-project validation remains in progress
 
-**Progress updated:** 2026-10-09. In Part 7, `[x]` means implemented and checked in code, an automated test, a local smoke test, or a clearly labelled user-reported trial. `[ ]` means still open; notes identify work that is only partly implemented. A phase is complete only when its completion gate passes.
+**Progress updated:** 2026-10-10. In Part 7, `[x]` means implemented and checked in code, an automated test, a local smoke test, or a clearly labelled user-reported trial. `[ ]` means still open; notes identify work that is only partly implemented. A phase is complete only when its completion gate passes.
 
 ---
 
@@ -459,9 +459,7 @@ A.R.C. must remain meaningfully useful even if the cloud coding agents become un
 
 ## 4.1 The Local AI Engine
 
-The core local model will initially be a lightweight text embedding model.
-
-A candidate is `all-minilm`, run through Ollama.
+The core local model is the lightweight `all-minilm` text embedding model, run through Ollama.
 
 The model turns text into semantic representations that can be searched and compared locally.
 
@@ -485,11 +483,9 @@ Choose useful project history for the current development request rather than re
 
 Prioritize information based on semantic relevance, current project identity, recency, and evidence quality.
 
-**E. Optional local summarization**
+**E. Optional local source selection**
 
-A small local language model may create concise handoff summaries from retrieved evidence.
-
-Summaries must preserve references and uncertainty.
+The current chat path can use `qwen3:1.7b` to select relevant source IDs from retrieved evidence. It then displays the recorded evidence with references. Free-form generated handoff summaries are not implemented; any future summaries must preserve references and uncertainty.
 
 ## 4.2 What should NOT use AI?
 
@@ -532,9 +528,29 @@ After the local models have been downloaded, repeated local semantic searches do
 
 ## 4.4 Offline AI Boundary
 
-The planned A.R.C. collector, search, chatbot, and VS Code extension use local storage and local Ollama models only. Once dependencies and models are installed, these features must work with networking disabled. A.R.C. does not add a cloud AI endpoint or an external database. A separate coding agent connected through MCP may have its own network behavior; that is outside A.R.C.'s local AI path.
+The A.R.C. collector, search, chat, and VS Code extension use local storage and local Ollama models only. Once dependencies and models are installed, these features must work with networking disabled. A.R.C. does not add a cloud AI endpoint or an external database. A separate coding agent connected through MCP may have its own network behavior; that is outside A.R.C.'s local AI path.
 
-The future chatbot uses `all-minilm` for retrieval and `qwen3:1.7b` for evidence-grounded conversation. It is an explanation interface, not an authority that can mark a task complete or execute a fix.
+Chat uses `all-minilm` for semantic retrieval and optionally uses `qwen3:1.7b` to select evidence. It is not an authority that can mark a task complete or execute a fix.
+
+## 4.5 Local AI Requirements
+
+These are the requirements for the current macOS prototype. The setup commands and a first search are in [README.md](../README.md#set-up-on-macos).
+
+| Requirement | Needed for | Current choice and check |
+|---|---|---|
+| macOS 14 or newer | Supported macOS setup for Ollama | Apple Silicon supports CPU/GPU inference; Intel Macs run Ollama on CPU. A.R.C.'s validation target is an M1 Mac with 8 GB unified memory, not a proven minimum for every machine. |
+| Python 3.11 or newer, Git, and the Python package | CLI, local SQLite store, Git evidence, and MCP | Install `arc-memory` from this repository in a virtual environment. Python's SQLite build must support FTS5. |
+| Running local Ollama server | Semantic search and model-assisted chat | The default embedding and fixed chat endpoints use `http://127.0.0.1:11434`; the server must be reachable there. The embedding adapter accepts loopback addresses only. Run with `OLLAMA_NO_CLOUD=1` for Ollama local-only mode. |
+| `all-minilm` downloaded in Ollama | Embedding, automatic indexing, and semantic search | Required local model; approximately 46 MB to download. Pull it before going offline. |
+| `qwen3:1.7b` downloaded in Ollama | Model-assisted evidence selection in `arc chat` and the extension Chat view | Optional for keyword-only chat; approximately 1.4 GB to download. It is loaded on demand and released after a request. |
+| Local disk space | Models, Python environment, and project history | Allow more than the models' approximately 1.5 GB combined download size; SQLite history and install files grow with use. The final free-space and runtime-memory budgets remain to be measured on the target machine. |
+| VS Code 1.90 or newer | Editor integration only | The CLI, dashboard, and MCP server do not require VS Code. Node.js/npm are needed to build or test the extension from source, not to run the Python CLI. |
+
+The macOS support boundary and cloud setting come from [Ollama's macOS requirements](https://docs.ollama.com/macos) and [FAQ](https://docs.ollama.com/faq). Download sizes come from the [all-minilm](https://ollama.com/library/all-minilm) and [qwen3:1.7b](https://ollama.com/library/qwen3:1.7b) model pages. The 8 GB target is this project's test machine, not an Ollama minimum.
+
+**Readiness checks:** `python --version` reports 3.11+, `git --version` works, `ollama list` includes each model needed for the selected workflow, and `curl -fsS http://127.0.0.1:11434/api/tags` reaches the local server. Confirm that an `all-minilm` `/api/embed` request returns a vector; a model listed by Ollama alone does not prove inference works. After recording and indexing an event, `arc search "<relevant question>" --semantic-only` must report `"mode": "semantic"` with a source-linked hit. A physical Wi-Fi-off search, cited chat, and fresh MCP trial passed on 2026-10-10; the [Phase 12 report](phase12-offline-report.json) records its scope and result.
+
+Without Ollama, stored history, handoff, and `--keyword-only` search remain available through SQLite FTS5. Without `qwen3:1.7b`, `arc chat --keyword-only` displays recorded evidence. These fallback paths do not satisfy the semantic-search requirement.
 
 ---
 
@@ -549,7 +565,7 @@ The future chatbot uses `all-minilm` for retrieval and `qwen3:1.7b` for evidence
 | Local database | SQLite |
 | Text search | SQLite FTS5 |
 | Local embeddings | Ollama with all-minilm |
-| Future local chat | Ollama with qwen3:1.7b, invoked only for a chat request |
+| Local chat source selection | Ollama with qwen3:1.7b, invoked only for a chat request |
 | Vector retrieval | sqlite-vec, or simple in-memory cosine search initially |
 | Git integration | Git CLI |
 | File monitoring | watchdog |
@@ -557,7 +573,7 @@ The future chatbot uses `all-minilm` for retrieval and `qwen3:1.7b` for evidence
 | Application interface | Streamlit for MVP; PySide6 later if needed |
 | Future editor interface | Lightweight VS Code extension in TypeScript, using the existing Python backend |
 | Testing | pytest |
-| Local explanation model | Optional small quantized LLM |
+| Future free-form explanation model | Optional small quantized LLM; not implemented |
 | External coding-agent integration | Codex and Claude Code through compatible local MCP integrations; A.R.C. itself stays local |
 
 Pin dependency versions once a working environment is confirmed, especially the MCP SDK, which has undergone major version changes.
@@ -765,7 +781,7 @@ Local AI feasibility:
 - [x] Download a local embedding model (`all-minilm`).
 - [x] Convert sample development records into embeddings.
 - [x] Retrieve a semantically similar record in local model and CLI tests.
-- [x] Confirm that retrieval works with all networking disconnected. The user reported on 2026-10-09 that networking was off and `--semantic-only` returned semantic results; exact terminal output remains to be saved for demo evidence.
+- [x] Confirm that retrieval works with all networking disconnected. A physical Wi-Fi-off semantic search returned the expected source at rank 1 on 2026-10-10; see the [saved report](phase12-offline-report.json). An on-camera segment remains to be recorded.
 
 Application and integration feasibility:
 - [x] Initialize the application repository and Python package.
@@ -1019,7 +1035,7 @@ Prove the application is useful, reliable, and genuinely local.
 
 The main user journey succeeds repeatedly on the demo machine with no cloud dependency for memory retrieval and checkpoint inspection.
 
-**Current Phase 7 status (2026-10-09):** Labelled local-model retrieval and false-candidate results, a real A.R.C. task with linked Git/test/decision evidence, a source-coverage baseline, a six-slide deck, a timed demo runbook, and an inspected dashboard backup video are available. `scripts/verify_phase7_journey.py` passed twice on the real database over loopback, including semantic retrieval and checkpoint inspection. The live unfamiliar-user comparison and a documented physically disconnected-network run remain open; this gate is not yet closed.
+**Current Phase 7 status (2026-10-10):** Labelled local-model retrieval and false-candidate results, a real A.R.C. task with linked Git/test/decision evidence, a source-coverage baseline, a six-slide deck, a timed demo runbook, and an inspected dashboard backup video are available. `scripts/verify_phase7_journey.py` passed twice on the real database over loopback, including semantic retrieval and checkpoint inspection. A physical Wi-Fi-off CLI/chat/MCP run also passed and is recorded in [Phase 12 validation](PHASE_12_VALIDATION.md#physical-offline-trial--2026-10-10). The live unfamiliar-user comparison remains open; this gate is not yet closed.
 
 ---
 
@@ -1166,7 +1182,7 @@ Own the application end to end: local embeddings and retrieval, Git/test evidenc
 
 ## Documentation and video lead
 
-Own the README walkthrough, architecture explanation, setup and MCP instructions, test evidence log, known-limitations page, presentation slides, short promotion clip, and backup demonstration video. Reproduce the current user journey, record where instructions fail, and keep claims in screenshots and narration aligned with implemented features. The lead can record the user-reported offline trial now and capture its terminal output during a repeat demo; they should not label unbuilt automatic tracking, chat, or extension views as working.
+Own the README walkthrough, architecture explanation, setup and MCP instructions, test evidence log, known-limitations page, presentation slides, short promotion clip, and backup demonstration video. Reproduce the current user journey, record where instructions fail, and keep claims in screenshots and narration aligned with implemented features. The 2026-10-10 physical offline CLI/chat/MCP result can be used as test evidence; the on-camera offline segment and remaining integrated validation still need to be recorded.
 
 ## Shared demo checkpoint
 

@@ -105,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     search_modes.add_argument("--keyword-only", action="store_true")
     search_modes.add_argument("--hybrid", action="store_true")
     commands.add_parser("state", help="show evidence-backed project state")
+    commands.add_parser("ai-status", help="check local Ollama models for search and chat")
     handoff = commands.add_parser("handoff", help="show a compact evidence-linked handoff")
     handoff.add_argument("--limit", type=int, default=6,
                          help="maximum selected evidence items, 1–12")
@@ -129,7 +130,8 @@ def build_parser() -> argparse.ArgumentParser:
     timeline.add_argument('--snapshot', type=int, help='snapshot_rowid returned by the first page')
     ask = commands.add_parser('chat', help='answer from local, cited project evidence')
     ask.add_argument('question')
-    ask.add_argument('--timezone-offset', type=int, default=0, help='local UTC offset in minutes')
+    ask.add_argument('--timezone-offset', type=int,
+                     help='local UTC offset in minutes (default: this machine\'s current offset)')
     ask.add_argument('--offset', type=int, default=0)
     ask.add_argument('--snapshot', type=int, help='snapshot_rowid returned by the first page')
     ask.add_argument('--keyword-only', action='store_true')
@@ -180,9 +182,6 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command in ('observer-watch', 'watch'):
             from arc.observer import watch
             watch(service, project_path, interval=getattr(args, 'interval', 5))
-            return 0
-            from arc.observer import watch
-            watch(service, project_path, interval=args.interval)
             return 0
         elif args.command == 'timeline':
             result = service.store.timeline(service._project(project_path)['id'],
@@ -254,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
                                            hybrid=args.hybrid)
         elif args.command == "state":
             result = service.project_state(project_path)
+        elif args.command == "ai-status":
+            result = service.local_ai_status()
         elif args.command == "handoff":
             result = service.project_handoff(project_path, args.limit)
         elif args.command == "event":
