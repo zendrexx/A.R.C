@@ -2,6 +2,7 @@
 
 import json
 import os
+from arc.processes import pid_alive
 import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -289,13 +290,7 @@ class Store:
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:
-        try:
-            os.kill(pid, 0)
-            return True
-        except PermissionError:
-            return True
-        except (OSError, TypeError, ValueError):
-            return False
+        return pid_alive(pid)
 
     def _start_automatic_session(self, project_id: str, now: str) -> dict:
         session_id = uuid4().hex[:12]

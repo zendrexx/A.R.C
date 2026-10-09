@@ -12,32 +12,12 @@ from pathlib import Path
 from arc.git_evidence import _git, _visible, branch_name, changed_file_statuses, exclusion_globs, is_ancestor, snapshot
 from arc.memory import EmbeddingUnavailable, redact
 from arc.store import utc_now
+from arc.processes import pid_alive
 
 
 def _alive(pid) -> bool:
     if os.name == 'nt':
-        # os.kill(pid, 0) terminates processes on Windows; query the handle instead.
-        import ctypes
-        from ctypes import wintypes
-        try:
-            pid = int(pid)
-            if pid <= 0:
-                return False
-        except (TypeError, ValueError):
-            return False
-        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
-        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-        kernel.OpenProcess.restype = wintypes.HANDLE
-        kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-        kernel.CloseHandle.argtypes = [wintypes.HANDLE]
-        handle = kernel.OpenProcess(0x1000, False, pid)
-        if not handle:
-            return False
-        try:
-            code = wintypes.DWORD()
-            return bool(kernel.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259
-        finally:
-            kernel.CloseHandle(handle)
+        return pid_alive(pid)
     try:
         os.kill(int(pid), 0)
     except (OSError, TypeError, ValueError):
