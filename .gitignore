@@ -1,7 +1,8 @@
 .venv/
+.arc/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+*.egg-info/
 .DS_Store
-assets/hand_landmarker.task
-data/profile.json
 

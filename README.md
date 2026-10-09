@@ -1,69 +1,86 @@
-# A.R.C
+# A.R.C. — Agent Recall & Continuity
 
-**Your hands. Your gestures. Your control.**
+A.R.C. is a local development-memory prototype. It records **selected** Git state, explicit notes, task claims, and configured test results in SQLite. A local Ollama embedding model makes those records searchable by meaning. A stdio MCP server lets a new Codex session request an evidence-backed project handoff.
 
-A.R.C is an offline-first desktop proof of concept for teaching a computer personal static hand gestures and using them to control a five-step workshop task. GestureForge was the working name in the supplied concept plan; this repository uses **A.R.C** throughout.
+This repository currently implements the **Phase 0 runnable slice** from [the product plan](docs/DEVELOPMENT_PLAN.md). It is a CLI and MCP prototype; file watching and the dashboard are later phases.
 
-## Run on macOS
+## Set up on macOS
 
-Use a Mac with a webcam and [Homebrew](https://brew.sh/). Python 3.11 is the team baseline; the system Python 3.9 on some Macs is too old for this setup. The first installation and model download require internet. Gesture capture, training, recognition, actions, and profile reload then run locally.
+Python 3.11, Git, and Ollama are required. The first package install and model pull need internet. In a terminal at the repository root:
 
 ```bash
-brew install python@3.11
+brew install python@3.11 ollama
 python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python scripts/download_model.py
-python -m arc.app
+python -m pip install -e '.[dev]'
+OLLAMA_NO_CLOUD=1 ollama serve
 ```
 
-Run the dependency-free core checks with `python -m unittest discover -s tests`.
+Leave Ollama running in that terminal. `OLLAMA_NO_CLOUD=1` disables Ollama cloud features; the local embedding model still runs on your computer. Open another terminal at the repository root:
 
-Run these commands from the repository root. On first camera use, grant Terminal or your Python launcher access in **System Settings → Privacy & Security → Camera**. If the default camera is wrong, use `python -m arc.app --camera 1`.
-
-## First working demo
-
-1. In **Gesture Studio**, name a pose, choose **Next step**, and press **Record gesture**. Hold the pose in view until all 16 samples are saved.
-2. Teach a visibly different pose for **Previous step** or **Mark complete**.
-3. Open **Workshop**. Hold a trained pose for about 0.65 seconds. The mapped action changes the real workshop state; lowering your hand releases the trigger.
-4. Quit and restart the app. Saved gestures, mappings, and workshop progress load from `data/profile.json`.
-5. Disconnect networking and repeat steps 1–4 to verify local training and operation. The model must already be downloaded.
-
-Manual Workshop buttons let the application track be tested before a webcam or gesture is available. Camera frames are processed in memory and are never written by this app. The profile stores only normalized 63-number landmark samples, gesture names and mappings, and workshop progress.
-
-## Project files
-
-```text
-A.R.C/
-├── README.md
-├── requirements.txt
-├── docs/
-│   └── DEVELOPMENT_PLAN.md       # two-person tracks, interface contract, 48-hour schedule
-├── scripts/
-│   └── download_model.py         # one-time MediaPipe model download
-├── tests/
-│   └── test_core.py              # activation, persistence, workflow checks
-├── assets/
-│   ├── README.md                  # model setup note
-│   └── hand_landmarker.task       # downloaded locally; ignored by Git
-├── data/
-│   ├── README.md                  # local profile note
-│   └── profile.json              # created at first save; ignored by Git
-└── arc/
-    ├── contracts.py              # shared data and method interface
-    ├── engine.py                 # Track A: MediaPipe, features, KNN, rejection
-    ├── gate.py                   # Track A: stable hold, release, and cooldown
-    ├── app.py                    # Track B: PySide6 UI, OpenCV camera, action wiring
-    ├── profile.py                # Track B: versioned JSON persistence
-    └── workshop.py               # Track B: five-step tutorial state
+```bash
+source .venv/bin/activate
+ollama pull all-minilm
+export ARC_DB="$PWD/.arc/arc.sqlite3"
+arc init --test-command "$PWD/.venv/bin/python -m pytest -q"
+arc note --kind error "SQLite schema migration failed because the users table was missing"
+arc note --kind decision "Use a green accent for the dashboard"
+arc index
+arc search "Why did the database upgrade crash?" --semantic-only
+arc state
 ```
 
-## Current scope and limitations
+`arc index` sends the selected note summaries only to Ollama on `127.0.0.1`. The search response must say `"mode": "semantic"`. If Ollama is unavailable, ordinary `arc search` labels its results `keyword_fallback`; `--semantic-only` returns an error instead. Run `arc index` again after recording new events.
 
-The implementation handles one hand and static poses. It uses a fixed starting distance threshold and class margin; these are deliberately conservative defaults that need calibration with actual users and cameras. Gesture samples captured during one short session can be similar, so record distinct poses and vary the hand angle slightly. Recognition results are not benchmarked yet. Camera processing currently runs on the UI event loop, so slower machines may show a lower preview frame rate. Kitchen Mode, external application control, multiple profiles, audio playback, and moving gestures are outside this proof of concept.
+## Record real project progress
 
-The model file comes from the [official MediaPipe Hand Landmarker model link](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker). The [MediaPipe Python API](https://ai.google.dev/edge/api/mediapipe/python/mp/tasks/vision/HandLandmarker) supports the video-frame call used here. [PySide6's official setup guide](https://doc.qt.io/qtforpython-6/gettingstarted.html) recommends a virtual environment and pip installation. [scikit-learn's KNN documentation](https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsClassifier.html) describes the local classifier.
+Use `arc --project /absolute/path/to/repository ...` to select a different Git project. Registration is explicit. The configured test command is an executable plus arguments; A.R.C. never executes a command found in a note or agent response.
 
-The OpenCV binding is installed through `opencv-contrib-python`, which provides `cv2` and avoids installing two competing OpenCV wheel variants alongside MediaPipe. See [OpenCV's Python installation guide](https://docs.opencv.org/doc/doxygen/html/db/dd1/tutorial_py_pip_install.html).
+```bash
+arc task add "Implement login"
+# Copy the returned task ID into the commands below.
+arc task claim TASK_ID "Login is complete"
+arc capture --task TASK_ID
+arc test --task TASK_ID
+arc state
+arc task confirm TASK_ID
+arc checkpoint
+```
+
+The claim alone remains **planned**. A linked Git observation can raise it to **implementation observed**. A passing configured test at the current Git fingerprint raises it to **tests passed**. Only an explicit `arc task confirm` marks it **completed/confirmed**. If the project changes afterward, the earlier test is no longer shown as current evidence. A checkpoint is saved as an **unconfirmed candidate** and reports when it becomes stale.
+
+`arc capture` records changed paths and a Git fingerprint; it does not store source files or a Git diff. `arc test` stores the configured command, exit code, fingerprint, and a redacted tail of output. Avoid putting secrets in the configured command.
+
+## Connect to Codex
+
+The MCP server is scoped to one registered project. After setting `ARC_DB` as above, run this **once** from the repository root to add it to your local Codex configuration:
+
+```bash
+codex mcp add arc \
+  --env ARC_PROJECT="$PWD" \
+  --env ARC_DB="$ARC_DB" \
+  -- "$PWD/.venv/bin/python" -m arc.mcp_server
+codex mcp list
+```
+
+Restart the Codex session, then ask: **“Use A.R.C. to show this project's current state and what remains unfinished.”** The server offers `arc_get_project_state`, `arc_search_memory`, `arc_get_recent_changes`, `arc_get_task_history`, `arc_get_event`, and `arc_create_checkpoint`. The last tool saves an unconfirmed candidate. Connecting the server makes returned project summaries available to the coding agent, so review what you record before enabling it.
+
+The [official Codex MCP guide](https://learn.chatgpt.com/docs/extend/mcp) documents local stdio servers and `codex mcp add`. The server uses the [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk). Ollama's [all-minilm model page](https://ollama.com/library/all-minilm) documents the model pull and local embedding endpoint; its [FAQ](https://github.com/ollama/ollama/blob/main/docs/faq.mdx) documents local-only mode.
+
+## Tests
+
+```bash
+python -m pytest -q
+```
+
+The tests cover unverified claims, current versus stale test evidence, checkpoint freshness, privacy filtering, semantic ranking, keyword fallback, and a real stdio MCP client/server round trip. The live-model test runs when local Ollama and `all-minilm` are available; otherwise it skips. A physical disconnected-network trial and actual fresh Codex-session handoff remain to be recorded as hackathon evidence.
+
+## Two developer boundary
+
+| Developer | Owns | Files |
+|---|---|---|
+| **1 — Local AI/memory** | Ollama adapter, embedding index, semantic ranking, search evaluation | `arc/memory.py`, memory tests |
+| **2 — Product/evidence** | Git observation, SQLite, verification rules, CLI, MCP | `arc/git_evidence.py`, `arc/store.py`, `arc/service.py`, `arc/cli.py`, `arc/mcp_server.py`, product tests |
+
+Both developers agree before changing `arc/contracts.py` or the SQLite schema. The shared flow is **recorded event → SQLite `events` row → embedding indexed by event ID → search hit with source reference**. The product track owns the event truth; the memory track ranks only recorded evidence. See [implementation notes](docs/IMPLEMENTATION.md) for the interfaces and next checkpoints.
 

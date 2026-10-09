@@ -1,43 +1,32 @@
-"""Stable boundary between the vision and desktop development tracks.
+"""Shared boundary for the memory and product tracks.
 
-Change this file only with both developers' agreement. Profile schema version 1
-stores the feature vectors produced by this contract.
+Developer 1 owns embedding and retrieval behavior. Developer 2 owns evidence
+collection, persistence, and MCP/CLI. Keep these shapes stable across tracks.
 """
 
-from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol, Sequence, Tuple
-
-FEATURE_LENGTH = 63  # 21 landmarks x (x, y, z), wrist/palm normalized
-ACTIONS = ("next_step", "previous_step", "complete_step", "replay_step")
-
-
-@dataclass
-class GestureDefinition:
-    gesture_id: str
-    name: str
-    action: str
-    samples: list[list[float]] = field(default_factory=list)
+from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
-class Prediction:
-    gesture_id: Optional[str] = None
-    distance: Optional[float] = None  # nearest sample RMS over 63 features
-    margin: Optional[float] = None  # runner-up distance minus winner distance
-    reason: str = "unknown"
+class GitSnapshot:
+    root: Path
+    head: str
+    fingerprint: str
+    changed_paths: tuple[str, ...]
 
 
 @dataclass(frozen=True)
-class FrameResult:
-    landmarks: Tuple[Tuple[float, float, float], ...] = ()  # 21 image-normalized points
-    features: Optional[Tuple[float, ...]] = None
-    prediction: Prediction = Prediction()
+class SearchHit:
+    event_id: str
+    kind: str
+    summary: str
+    source_ref: str
+    created_at: str
+    score: float
 
 
-class RecognitionEngine(Protocol):
-    def fit(self, gestures: Sequence[GestureDefinition]) -> None: ...
-
-    def process_frame(self, frame_bgr: Any, timestamp_ms: int) -> FrameResult: ...
-
-    def close(self) -> None: ...
+TASK_STATES = (
+    "planned", "implementation_observed", "tests_passed", "completed_confirmed"
+)
 
