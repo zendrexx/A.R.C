@@ -49,6 +49,38 @@ def test_local_today_yesterday_and_inclusive_date_range(service, sample_repo):
                keyword_only=True)
 
 
+def test_went_wrong_lists_activity_since_last_successful_check(service, sample_repo):
+    project = service._project(sample_repo)
+    passing = service.store.add_event(project['id'], 'test', 'pytest -q passed',
+                                      'explicit', 'auto', details={'passed': True},
+                                      created_at='2026-10-08T10:00:00+00:00')
+    before = recorded(service, sample_repo, 'note', 'Before the passing run',
+                      '2026-10-08T09:00:00+00:00')
+    change = recorded(service, sample_repo, 'git', 'Observed Git changes: arc/chat.py',
+                      '2026-10-08T11:00:00+00:00')
+    error = recorded(service, sample_repo, 'error', 'AttributeError in local_ai_status',
+                     '2026-10-08T12:00:00+00:00')
+    result = answer(service, sample_repo, 'Where did I go wrong?', keyword_only=True)
+    assert result['retrieval_mode'] == 'since_last_success'
+    assert 'Last recorded successful check' in result['answer']
+    assert 'Recorded activity after it, oldest first' in result['answer']
+    ids = [item['id'] for item in result['citations']]
+    assert passing['id'] in ids and change['id'] in ids and error['id'] in ids
+    assert before['id'] not in ids
+    assert (result['answer'].index('pytest -q passed')
+            < result['answer'].index('Observed Git changes')
+            < result['answer'].index('AttributeError'))
+
+
+def test_went_wrong_without_success_shows_latest_events(service, sample_repo):
+    error = recorded(service, sample_repo, 'error', 'Something failed',
+                     '2026-10-08T12:00:00+00:00')
+    result = answer(service, sample_repo, 'What went wrong?', keyword_only=True)
+    assert result['retrieval_mode'] == 'since_last_success'
+    assert 'No passing test or explicit confirmation' in result['answer']
+    assert error['id'] in [item['id'] for item in result['citations']]
+
+
 def test_task_answer_shows_state_without_claiming_completion(service, sample_repo):
     task = service.add_task(sample_repo, 'Login workflow')
     empty = answer(service, sample_repo, 'Status of Login workflow?', keyword_only=True)

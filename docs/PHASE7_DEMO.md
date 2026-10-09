@@ -14,6 +14,7 @@ arc handoff
 arc search "Why did we use a local browser dashboard?" --semantic-only
 arc dashboard --no-browser
 ```
+oosdnandi
 
 Start Ollama first if semantic search reports it unavailable. Check the returned `mode`, source reference, project name, and current task state before presenting. If the search misses its intended event, show the actual result and choose another recorded question; do not prearrange a false claim. Keep the dashboard terminal open. The browser address is `http://127.0.0.1:8765/` unless another port was selected.
 

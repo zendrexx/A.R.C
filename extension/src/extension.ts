@@ -120,7 +120,9 @@ export function activate(context: vscode.ExtensionContext) {
     },
     notify:(text,ready=false)=>{
       aiStatus=text;void controls.status();
-      if(backend)void chatView?.webview.postMessage({action:'ai',ready,model:vscode.workspace.getConfiguration('arc').get<string>('models.chat')||''});
+      const chatModel=vscode.workspace.getConfiguration('arc').get<string>('models.chat')||'';
+      if(backend)void chatView?.webview.postMessage({action:'ai',ready,model:chatModel,
+        reason:ready?undefined:chatModel?`'${chatModel}' is not ready yet`:'Select a chat model with A.R.C.: Select AI Model'});
     },
     index:async()=>{
       const current=backend;if(!current||current.busy||current.observing||pendingIndex<=0)return;

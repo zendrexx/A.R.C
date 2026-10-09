@@ -18,7 +18,7 @@ class OllamaChat:
     model = 'qwen3:1.7b'
 
     def __init__(self):
-        self.model = os.environ.get('ARC_CHAT_MODEL', self.model)
+        self.model = os.environ.get('ARC_CHAT_MODEL') or self.model
 
     def respond(self, question, events):
         evidence = [{k: e[k] for k in ('id', 'kind', 'created_at', 'summary')} for e in events[:12]]
@@ -286,6 +286,9 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
     fix_question = (bool(re.search(r'\b(error|errors|bug|bugs|failure|failures|issue|issues)\b', question, re.I))
                     and bool(re.search(r'\b(fix|fixed|resolve|resolved|resolution|repair|repaired)\b', question, re.I)))
     error_question = bool(re.search(r'\b(errors?|failures?|bugs?)\b', question, re.I))
+    went_wrong = bool(re.search(
+        r'\bwent wrong\b|\bgo(?:e?s|ing)? wrong\b|\bmess(?:ed)? up\b|\bbroke\b|\bbroken\b',
+        question, re.I))
     tasks = service.store.tasks(project['id'])
     task = _task_for_question(tasks, question) if not rationale else None
     handoff = bool(re.search(r'leave off|unfinished|what(?:\s+should\s+we)?\s+do next|next task', question, re.I))
@@ -307,6 +310,7 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
     use_model = False
     model_rejected_candidates = False
     model_answer = None
+    anchor = None
     if single:
         page = service.store.timeline(project['id'], 1, 0, kind='git' if changes else None,
             since=since, until=until, snapshot_rowid=snapshot_rowid, oldest_first=oldest)
@@ -338,6 +342,26 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
             events = page['events']
             notice = 'No reported resolution was recorded for this period.'
         retrieval = 'linked_incidents'
+    elif went_wrong:
+        successes = [event for event in service.store.timeline(
+                         project['id'], 8, kind='test',
+                         snapshot_rowid=snapshot_rowid)['events']
+                     if event['details'].get('passed')]
+        successes += service.store.timeline(
+            project['id'], 4, kind='confirmation',
+            snapshot_rowid=snapshot_rowid)['events']
+        anchor = max(successes, key=lambda event: event['created_at']) if successes else None
+        anchor_since = anchor['created_at'] if anchor else None
+        if anchor_since and until and anchor_since >= until:
+            anchor = anchor_since = None
+        page = service.store.timeline(
+            project['id'], PAGE_SIZE, offset, since=anchor_since or since, until=until,
+            snapshot_rowid=snapshot_rowid, collapse_observations=True,
+            offset_minutes=offset_minutes)
+        events = [event for event in page['events']
+                  if not anchor or event['id'] != anchor['id']]
+        retrieval = 'since_last_success'
+        use_model = True
     elif rationale and (since or until):
         page = service.store.timeline(project['id'], PAGE_SIZE, offset,
                                       kinds=('decision', 'note', 'observer_commit',
@@ -445,6 +469,11 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
             text = 'No recorded rationale supports this answer.'
         elif fix_question:
             text = 'No reported resolution or recorded error supports this answer.'
+        elif went_wrong:
+            text = ('Last recorded successful check:\n'
+                    + _line(anchor, fingerprint, offset_minutes)
+                    + '\nNo activity has been recorded after it.' if anchor else
+                    'No recorded activity can show where things went wrong yet.')
         elif period:
             text = f'No recorded activity for {period}.'
         else:
@@ -498,6 +527,14 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
                     lines.append('Recent history page:')
             elif page and retrieval == 'task_history':
                 lines.append(f'{page["total_events"]} linked event(s); showing {len(events)} on this page.')
+            elif retrieval == 'since_last_success':
+                if anchor:
+                    lines.append('Last recorded successful check:')
+                    lines.append(_line(anchor, fingerprint, offset_minutes))
+                    lines.append('Recorded activity after it, oldest first:')
+                else:
+                    lines.append('No passing test or explicit confirmation is recorded; '
+                                 'latest recorded events, oldest first:')
             elif rationale:
                 lines.append('Recorded rationale from decisions, notes, incident causes, or commit messages:')
             else:
@@ -507,7 +544,8 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
         text = '\n'.join(lines)
     if next_offset is not None:
         text += '\nMore history is available; continue with next_offset and snapshot_rowid.'
-    citation_events = _unique([*events, *milestones], PAGE_SIZE + 4)
+    citation_events = _unique([*([anchor] if anchor else []), *events, *milestones],
+                              PAGE_SIZE + 4)
     intro = model_answer or '\n'.join(line for line in text.splitlines()
                                       if not line.startswith('[arc:event/'))
     return {'answer': text, 'answer_intro': intro, 'mode': mode, 'retrieval_mode': retrieval,
