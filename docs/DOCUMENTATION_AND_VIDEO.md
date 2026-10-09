@@ -1,5 +1,5 @@
 # Documentation and video promotion
-
+Date: 10/10/26
 The second team member owns the product explanation and evidence package while the implementation developer builds A.R.C. This is a non-coding role. Use the [development plan](DEVELOPMENT_PLAN.md) as the feature checklist and the [project workflow](PROJECT_WORKFLOW.md) for commands that actually run today. Describe implemented behavior separately from planned Phases 8–12.
 
 ## Documentation deliverables

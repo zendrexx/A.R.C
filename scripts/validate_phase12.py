@@ -89,7 +89,7 @@ def main():
 
         def start_worker():
             return subprocess.Popen([sys.executable, '-m', 'arc.cli', '--project', str(repo),
-                '--db', str(database), 'watch'], cwd=repo, env=environment,
+                '--db', str(database), 'observer-watch'], cwd=repo, env=environment,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         def stop_worker(process):

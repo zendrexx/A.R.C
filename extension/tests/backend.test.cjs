@@ -27,7 +27,7 @@ test('observer is workspace scoped and disposed with the connection', () => {
   try {
     const backend = new Backend('python', '/selected/project', '/shared/arc.sqlite3');
     backend.startObserver();
-    assert.deepEqual(seen.args, ['-m','arc.cli','--project','/selected/project','--db','/shared/arc.sqlite3','watch']);
+    assert.deepEqual(seen.args, ['-m','arc.cli','--project','/selected/project','--db','/shared/arc.sqlite3','observer-watch']);
     assert.equal(seen.options.shell, undefined);
     assert.equal(backend.observing, true);
     worker.stderr.emit('data', Buffer.from('worker error'));

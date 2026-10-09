@@ -124,7 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("serve", help="run the local stdio MCP server")
     observer = commands.add_parser('observer', help='control opt-in local collection')
     observer.add_argument('action', choices=['status', 'enable', 'pause', 'resume', 'disable', 'poll'])
-    commands.add_parser('watch', help='run an enabled project observer until stopped')
+    commands.add_parser('observer-watch', help='run the extension observer until stopped')
     timeline = commands.add_parser('timeline', help='inspect paginated recorded activity')
     timeline.add_argument('--kind')
     timeline.add_argument('--since')
@@ -172,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
             result = (status(service, project_path) if args.action == 'status' else
                       poll(service, project_path) if args.action == 'poll' else
                       control(service, project_path, args.action))
-        elif args.command == 'watch':
+        elif args.command == 'observer-watch':
             from arc.observer import watch
             watch(service, project_path)
             return 0

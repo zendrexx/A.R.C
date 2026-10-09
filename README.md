@@ -125,7 +125,7 @@ After registering the project, use the same database for CLI, extension, and MCP
 
 ```bash
 arc observer enable
-arc watch
+arc observer-watch
 ```
 
 The worker polls eligible Git state every five seconds, coalesces unchanged saves, records reachable commits made while it was stopped, and retries indexing two records at a time. It creates an observation session if no session is active. Sessions remain open across worker restarts; `arc session end` closes one explicitly. Run controls and queries from another terminal:

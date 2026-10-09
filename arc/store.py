@@ -476,7 +476,7 @@ class Store:
         ).fetchone()
         return int(row[0])
 
-    def timeline(self, project_id: str, limit: int, offset: int = 0,
+    def timeline_legacy(self, project_id: str, limit: int, offset: int = 0,
                  kind: str | None = None) -> tuple[list[dict], int]:
         filter_sql = "project_id=? AND (? IS NULL OR kind=?)"
         arguments = (project_id, kind, kind)

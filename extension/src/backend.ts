@@ -50,7 +50,7 @@ export class Backend {
     if (this.disposed || this.worker) return;
     const args = ['-m', 'arc.cli', '--project', this.project];
     if (this.database) args.push('--db', this.database);
-    args.push('watch');
+    args.push('observer-watch');
     this.observerError = undefined;
     const worker = spawn(this.python, args, {cwd: this.project, windowsHide: true,
       stdio: ['ignore', 'ignore', 'pipe'], env: {...process.env, PYTHONIOENCODING: 'utf-8'}});
