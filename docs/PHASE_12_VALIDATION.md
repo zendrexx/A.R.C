@@ -15,12 +15,12 @@ Unchecked items have not passed. Integrated checks require Phases 8–10.
 
 | Measurement | Observed result |
 |---|---|
-| Observer idle CPU/RAM | Not measured |
+| Observer idle CPU/RAM | 2026-10-10 disposable workflow: Python observer 0.2% CPU and 28,098,560 bytes RSS over a 5.008-second idle sample. Excludes Git, Ollama, and sustained use. |
 | Model cold-start/RAM/swap | Not measured |
-| Search/chat latency | One warm offline trial: semantic CLI search 143.1 ms; cited local chat 4,842.0 ms; fresh MCP handoff and event 1,518.1 ms. These are end-to-end timings, not a benchmark. |
-| Missed/duplicate events | Not measured |
-| Queue recovery and SQLite size | Not measured |
-| Citation/date accuracy and retrieval misses | Not measured |
+| Search/chat latency | First warm offline trial: semantic CLI search 143.1 ms, cited chat 4,842.0 ms, fresh MCP 1,518.1 ms. Phase 10 offline run: deterministic questions 174–546 ms, model-selected handoff 15,274.5 ms, named rationale 5,278.9 ms. These are end-to-end single-run timings, not a benchmark. |
+| Missed/duplicate events | One disposable workflow recorded 7 events and 0 duplicate commit events; no long-running miss-rate measurement. |
+| Queue recovery and SQLite size | Durable queue retry has an automated test; disposable workflow database was 167,936 bytes. Longer restart and growth measurements remain open. |
+| Citation/date accuracy and retrieval misses | Focused source-ID and local-day tests passed. A live model answer added unsupported detail despite a valid citation; broader labelled accuracy remains open. |
 
 Record machine, date and measurement method alongside results. Phase 12 passes only after the integrated offline workflow succeeds on the target machine within agreed measured resource budgets.
 
@@ -39,3 +39,13 @@ The validator command, run while Wi-Fi was off, was:
 ```
 
 This closes the specific physical network-off search/chat/MCP check. It did not exercise VS Code, a full observer/test workflow while offline, or an on-camera offline demo; those checks remain open above.
+
+## Phase 10 offline question trial — 2026-10-10
+
+The [Phase 10 report](phase10-offline-report.json) records a second physical Wi-Fi-off run on the same M1 8 GB Mac at 01:55 Manila time. External TCP was unreachable. The six planned questions and a named dashboard-rationale question ran against the real A.R.C. database; every returned citation resolved to its project event. The unnamed “this feature” rationale question returned no citation, and the error/fix question did not claim an unrecorded fix. The timeline exposed older history through `next_offset` and a stable snapshot. Wi-Fi was restored afterward. This targeted run supports Phase 10; it does not replace the open extension-host, full workflow, accuracy calibration, or resource measurements above.
+
+## Phase 11/12 validation rerun — 2026-10-10
+
+The [saved report](phase11-12-validation-report.json) records the current installed-source workflow on the M1 8 GB Mac. Python tests passed **54/54** and compiled extension interaction tests passed **15/15**. A disposable project completed automatic edit capture, unchanged-save deduplication, `.env` exclusion, external commit recovery after worker restart, failing then passing configured tests without automatic task confirmation, pause/resume exclusion, source-linked chat, keyword search, fresh MCP retrieval, and worker shutdown. The 5-second observer sample measured 0.2% Python CPU and about 28 MB RSS; 7 events were stored in a 167,936-byte SQLite database, with no duplicate commit event in that run. The extension tests simulate VS Code; the installed editor extension differs from the newly compiled source, and its live view was not exercised.
+
+A separate live `qwen3:1.7b` answer cited a real decision correctly in 8.698 seconds but added reasons about connectivity-limited users and improved performance that the decision did not record. Valid citation IDs therefore do not certify the model's prose. The integrated run used Wi-Fi on; the earlier physical offline checks above covered CLI/chat/MCP only. The open checklist items still require a real editor-host session, sustained Git/Ollama memory and swap measurements, a full Wi-Fi-off observer/test/editor workflow, broader labelled accuracy, and the backup offline recording.

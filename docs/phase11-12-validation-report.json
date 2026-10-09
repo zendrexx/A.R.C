@@ -1,0 +1,46 @@
+{
+  "date_local": "2026-10-10",
+  "machine": "MacBook Air M1, 8 GB, macOS 26.6.2",
+  "method": "Disposable installed-package observer/test/chat/MCP workflow on this Mac; separate compiled extension tests and live local-model read",
+  "checks": {
+    "unchanged_saves_deduplicated_and_env_excluded": true,
+    "external_commit_recovered_after_worker_restart": true,
+    "failing_then_passing_test_retains_unconfirmed_task": true,
+    "pause_and_resume_discard_paused_activity": true,
+    "chat_citations_resolve_and_claims_stay_unverified": true,
+    "missing_rationale_is_not_invented": true,
+    "keyword_search_without_models": true,
+    "fresh_mcp_reads_same_evidence_ids": true,
+    "disable_stops_worker": true
+  },
+  "measurements": {
+    "observer_python_idle_cpu_percent": 0.2,
+    "observer_python_rss_bytes": 28098560,
+    "idle_sample_seconds": 5.008,
+    "save_observation_seconds": 5.144,
+    "evidence_chat_cli_seconds": 0.298,
+    "keyword_search_cli_seconds": 0.105,
+    "sqlite_bytes": 167936,
+    "duplicate_commit_events": 0,
+    "events_recorded": 7
+  },
+  "automated_tests": {
+    "python": "54 passed",
+    "extension": "15 passed"
+  },
+  "live_model_trial": {
+    "question": "Why did we use a local browser dashboard instead of another service?",
+    "mode": "local_model_answer",
+    "citation_id": "8fbf5d9e14ac4ebba2c2163a97c685d1",
+    "citation_resolved": true,
+    "elapsed_seconds": 8.698,
+    "finding": "The answer added claims about users in areas with limited connectivity and improved performance. The cited decision only records keeping the MVP offline and lightweight."
+  },
+  "limits": [
+    "Observer CPU/RSS is a 5-second Python-only sample; Git and Ollama processes, sustained swap, and cold model load were not measured.",
+    "The workflow ran with Wi-Fi on; earlier separate physical Wi-Fi-off CLI/chat/MCP trials did not include the extension or a full observer/test workflow.",
+    "VS Code editor-host visuals, keyboard navigation, theme appearance, and real restart behavior were not exercised.",
+    "The installed VS Code extension differs from the newly compiled source; current source was exercised through simulated VS Code tests.",
+    "Model prose accuracy is not established by valid citations; the live trial contained unsupported detail."
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "date_local": "2026-10-10T01:55:48.732770+08:00",
+  "machine": "macOS-26.6.2-arm64-arm-64bit",
+  "project": "A.R.C",
+  "database": "arc.sqlite3",
+  "wifi_power": "Wi-Fi Power (en0): Off",
+  "external_tcp_connected": false,
+  "results": [
+    {
+      "question": "What happened today?",
+      "mode": "evidence",
+      "retrieval_mode": "timeline",
+      "citation_ids": [
+        "dc3b8d5736ab4844b7eecce3848a3c6e",
+        "9533a3e29f4d4df4b193248e326746b7",
+        "30919c6b4abf4409a1df78641888ef04",
+        "70afa83ded46425097895af400035418",
+        "778a182de3c943318c1d972b2adbde09",
+        "09c65b492b29487e8cd274b6f4099cab"
+      ],
+      "total_events": 50,
+      "total_entries": 6,
+      "next_offset": null,
+      "elapsed_ms": 180.5
+    },
+    {
+      "question": "What changed yesterday?",
+      "mode": "evidence",
+      "retrieval_mode": "timeline",
+      "citation_ids": [
+        "d6621fb6fa084dd0a675c452647b1024",
+        "020ab9bc9f704583a8d6d2b08fd738f6",
+        "74a96661c9a547d4830c745954b324b0",
+        "c8f89a91f94d411a9cd7b4fff1a5b9ef",
+        "37e3034ddd11408bb5534eef1e9aecce",
+        "9202dc17dc95480285b3a04e6a07ecff",
+        "c2f6371dfa4b46629b6995069ec64cc1",
+        "fb6db16b189449e695de844ad28e63bb",
+        "c07d919baa04428595414635fea79e0c",
+        "3901318c0b5a4865aadcea87a25f95af",
+        "8fbf5d9e14ac4ebba2c2163a97c685d1",
+        "02aae4fdc34044228a35bb460143b998"
+      ],
+      "total_events": 18,
+      "total_entries": 18,
+      "next_offset": 12,
+      "elapsed_ms": 173.7
+    },
+    {
+      "question": "What errors did we fix?",
+      "mode": "evidence",
+      "retrieval_mode": "linked_incidents",
+      "citation_ids": [
+        "b52347803146410b86a5a4041f32694c"
+      ],
+      "total_events": 1,
+      "total_entries": 1,
+      "next_offset": null,
+      "elapsed_ms": 175.9
+    },
+    {
+      "question": "Why did we implement this feature?",
+      "mode": "evidence",
+      "retrieval_mode": "semantic",
+      "citation_ids": [],
+      "total_events": null,
+      "total_entries": null,
+      "next_offset": null,
+      "elapsed_ms": 194.6
+    },
+    {
+      "question": "Where did we leave off?",
+      "mode": "local_model_selection",
+      "retrieval_mode": "handoff",
+      "citation_ids": [
+        "8fbf5d9e14ac4ebba2c2163a97c685d1",
+        "4dc72222d102495f8768e04576e7017c",
+        "94c9e3db49ef474fbdb0548fa80f1a2e"
+      ],
+      "total_events": null,
+      "total_entries": null,
+      "next_offset": null,
+      "elapsed_ms": 15274.5
+    },
+    {
+      "question": "Summarize our development timeline.",
+      "mode": "evidence",
+      "retrieval_mode": "timeline",
+      "citation_ids": [
+        "dc3b8d5736ab4844b7eecce3848a3c6e",
+        "9533a3e29f4d4df4b193248e326746b7",
+        "30919c6b4abf4409a1df78641888ef04",
+        "70afa83ded46425097895af400035418",
+        "778a182de3c943318c1d972b2adbde09",
+        "09c65b492b29487e8cd274b6f4099cab",
+        "d6621fb6fa084dd0a675c452647b1024",
+        "020ab9bc9f704583a8d6d2b08fd738f6",
+        "74a96661c9a547d4830c745954b324b0",
+        "c8f89a91f94d411a9cd7b4fff1a5b9ef",
+        "37e3034ddd11408bb5534eef1e9aecce",
+        "9202dc17dc95480285b3a04e6a07ecff",
+        "8fbf5d9e14ac4ebba2c2163a97c685d1",
+        "4dc72222d102495f8768e04576e7017c",
+        "b52347803146410b86a5a4041f32694c",
+        "94c9e3db49ef474fbdb0548fa80f1a2e"
+      ],
+      "total_events": 68,
+      "total_entries": 24,
+      "next_offset": 12,
+      "elapsed_ms": 545.7
+    },
+    {
+      "question": "Why did we use a local browser dashboard instead of another service?",
+      "mode": "local_model_selection",
+      "retrieval_mode": "semantic",
+      "citation_ids": [
+        "8fbf5d9e14ac4ebba2c2163a97c685d1"
+      ],
+      "total_events": null,
+      "total_entries": null,
+      "next_offset": null,
+      "elapsed_ms": 5278.9
+    }
+  ],
+  "status": "passed"
+}
