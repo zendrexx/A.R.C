@@ -9,8 +9,9 @@
   "devDependencies": {"@types/node": "^20.0.0", "@types/vscode": "~1.90.0", "typescript": "^5.7.0"},
   "contributes": {
     "viewsContainers": {"activitybar": [{"id": "arc", "title": "A.R.C.", "icon": "media/arc.svg"}]},
-    "views": {"arc": [{"id": "arc.memory", "name": "Memory"}, {"id": "arc.chat", "name": "Chat", "type": "webview"}]},
+    "views": {"arc": [{"id": "arc.chat", "name": "Chat", "type": "webview"}, {"id": "arc.memory", "name": "Memory"}]},
     "commands": [
+      {"command": "arc.createProject", "title": "A.R.C.: Register Project"},
       {"command": "arc.connect", "title": "A.R.C.: Connect Project"},
       {"command": "arc.refresh", "title": "A.R.C.: Refresh Memory", "icon": "$(refresh)"},
       {"command": "arc.search", "title": "A.R.C.: Search Memory", "icon": "$(search)"},

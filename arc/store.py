@@ -323,7 +323,8 @@ class Store:
 
     def timeline(self, project_id: str, limit: int = 20, offset: int = 0,
                  kind: str | None = None, since: str | None = None,
-                 until: str | None = None, snapshot_rowid: int | None = None) -> dict:
+                 until: str | None = None, snapshot_rowid: int | None = None,
+                 oldest_first: bool = False) -> dict:
         def utc(value):
             if not value:
                 return None
@@ -341,8 +342,9 @@ class Store:
         clauses = 'project_id=? AND rowid<=? AND (? IS NULL OR kind=?) AND (? IS NULL OR created_at>=?) AND (? IS NULL OR created_at<?)'
         args = (project_id, snapshot_rowid, kind, kind, since, since, until, until)
         total = self.connection.execute('SELECT COUNT(*) FROM events WHERE ' + clauses, args).fetchone()[0]
+        direction = 'ASC' if oldest_first else 'DESC'
         rows = self.connection.execute('SELECT * FROM events WHERE ' + clauses +
-            ' ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?', (*args, limit, offset))
+            f' ORDER BY created_at {direction}, rowid {direction} LIMIT ? OFFSET ?', (*args, limit, offset))
         events = [self._event(row) for row in rows]
         return {'events': events, 'total_events': total, 'snapshot_rowid': snapshot_rowid,
                 'next_offset': offset + len(events) if offset + len(events) < total else None}

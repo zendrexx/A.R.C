@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 // Exercise activation and command lifecycles without pretending to certify VS Code visuals.
-function setup({trusted = true, names = ['one'], hook, saved = {}} = {}) {
+function setup({trusted = true, names = ['one'], hook, saved = {}, observationApproval = true} = {}) {
   const commands = new Map(); const errors = []; const instances = []; const messages = [];
   const folders = names.map(name => ({name, uri: {scheme: 'file', fsPath: path.resolve(name), toString: () => name}}));
   let choose = folders.length - 1; let provider; let memory; let onConfig; let receive;
@@ -34,7 +34,7 @@ function setup({trusted = true, names = ['one'], hook, saved = {}} = {}) {
     window: {
       createStatusBarItem: () => ({show(){},dispose(){}}),
       showErrorMessage: message => {errors.push(message);},
-      showInformationMessage: async (_, __, action) => action,
+      showInformationMessage: async (_, __, action) => action === 'Enable' && !observationApproval ? undefined : action,
       showQuickPick: async items => items[choose],
       showInputBox: async () => 'question',
       showTextDocument: async () => {},
@@ -75,6 +75,43 @@ function setup({trusted = true, names = ['one'], hook, saved = {}} = {}) {
     dispose: () => context.subscriptions.forEach(item => item.dispose())};
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
+
+test('chat offers actions before connecting and executes only allowlisted commands', async () => {
+  const calls = [];
+  const app = setup({hook: (_, args) => {calls.push(args);}});
+  const chat = app.chat();
+  chat.send({action:'ask',question:'Can you create a project?',offset:0,timezoneOffset:480,requestId:1});
+  await tick();
+  assert.equal(app.instances.length, 0);
+  assert.equal(app.messages[0].result.actions[0].command, 'arc.createProject');
+  chat.send({action:'command',command:'arc.createProject'});
+  await tick();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].join(','), 'init');
+  assert.equal(app.instances[0].disposed, true);
+  chat.send({action:'command',command:'arbitrary.command'});
+  await tick();
+  assert.equal(app.errors.length, 0);
+  await app.commands.get('arc.connect')();
+  chat.send({action:'ask',question:'Please enable observation',offset:0,timezoneOffset:480,requestId:2});
+  await tick();
+  assert.equal(app.instances[1].observing, true);
+  assert.equal(app.messages.at(-1).result.answer_intro, 'Automatic observation is enabled.');
+  assert.equal(app.messages.at(-1).result.actions, undefined);
+  app.dispose();
+});
+
+test('declining the observation popup does not enable recording', async () => {
+  const app = setup({observationApproval: false});
+  await app.commands.get('arc.connect')();
+  app.chat().send({action:'ask',question:'enable automatic observation',offset:0,timezoneOffset:480,requestId:1});
+  await tick();
+  assert.equal(app.instances[0].observing, false);
+  assert.equal(app.instances[0].enabled, undefined);
+  assert.equal(app.messages.at(-1).result.answer_intro, 'Automatic observation was not enabled.');
+  assert.equal(app.messages.at(-1).result.actions, undefined);
+  app.dispose();
+});
 
 test('connection rejects missing or untrusted workspaces', async () => {
   for (const [options, expected] of [[{names:[]}, /Open a local/], [{trusted:false}, /Trust this workspace/]]) {
@@ -126,5 +163,41 @@ test('an approved saved project reconnects when the extension reopens', async ()
   assert.equal(app.instances.length, 1);
   assert.equal(app.rows()[0].label, 'one');
   assert.equal(app.errors.length, 0);
+  app.dispose();
+});
+
+test('chat cards show newest evidence first with separate date, 12-hour time and file rows', () => {
+  const app = setup();
+  const html = app.chat().html;
+  class Element {
+    children = []; listeners = {}; attributes = {}; value = '';
+    appendChild(child) {this.children.push(child);}
+    replaceChildren() {this.children = []; this.value = '';}
+    addEventListener(event, callback) {this.listeners[event] = callback;}
+    setAttribute(name, value) {this.attributes[name] = value;}
+    set textContent(value) {this.value = String(value);}
+    get textContent() {return this.value + this.children.map(child => child.textContent).join('');}
+  }
+  const elements = new Map(); let receive; const posted = [];
+  const document = {head:new Element(),createElement:() => new Element(),
+    getElementById:id => {if (!elements.has(id)) elements.set(id,new Element());return elements.get(id);}};
+  const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)[1];
+  vm.runInNewContext(script, {document,window:{addEventListener:(_,callback) => {receive = callback;}},
+    acquireVsCodeApi:() => ({postMessage:message => posted.push(message)})});
+  const newer = {id:'new-id',created_at:'2026-10-09T16:16:52+00:00',summary:'Git changes',
+    changed_paths:['docs/notes, draft.md','<literal-file>.md']};
+  receive({data:{requestId:0,result:{answer_intro:'Recorded evidence',answer:'Raw evidence with IDs',
+    citations:[{id:'old-id',created_at:'2026-10-08T16:16:52+00:00',summary:'Older record'},newer]}}});
+  const cards = elements.get('sources').children;
+  assert.equal(cards.length,2);
+  const date = new Date(newer.created_at);
+  assert.equal(cards[0].children[0].textContent,date.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'}));
+  assert.equal(cards[0].children[1].textContent,date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true}));
+  assert.match(cards[0].children[1].textContent,/AM|PM/);
+  assert.deepEqual(cards[0].children[2].children.map(row => row.textContent),['Git changes',...newer.changed_paths]);
+  assert.equal(cards[0].textContent.includes('new-id'),false);
+  assert.equal(elements.get('answer').textContent,'Recorded evidence');
+  cards[0].listeners.click();
+  assert.equal(posted[0].id,'new-id');
   app.dispose();
 });
