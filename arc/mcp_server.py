@@ -104,5 +104,18 @@ def arc_create_checkpoint() -> dict:
         service.close()
 
 
+@mcp.tool(annotations=READ_ONLY)
+def arc_get_timeline(offset: int = 0, kind: str | None = None,
+                     since: str | None = None, until: str | None = None,
+                     snapshot_rowid: int | None = None) -> dict:
+    """Read a bounded timeline page, with UTC date and kind filters."""
+    service, project = _service()
+    try:
+        return service.store.timeline(service._project(project)['id'],
+            offset=max(0, offset), kind=kind, since=since, until=until, snapshot_rowid=snapshot_rowid)
+    finally:
+        service.close()
+
+
 if __name__ == "__main__":
     mcp.run()

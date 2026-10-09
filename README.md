@@ -2,9 +2,11 @@
 
 A.R.C. is a local development-memory prototype. It records **selected** Git state, explicit notes, task claims, and configured test results in SQLite. A local Ollama embedding model makes those records searchable by meaning. A stdio MCP server lets a new Codex session request an evidence-backed project handoff.
 
-This repository currently implements the **Phase 0 runnable slice** and explicit session grouping from Phase 1 of [the product plan](docs/DEVELOPMENT_PLAN.md). It is a CLI and MCP prototype; file watching, the dashboard, and the offline chatbot are later phases.
+The CLI and MCP evidence store now also supports opt-in Git observation, automatic indexing, paginated history, and cited local answers. The VS Code extension integrates these features. The [product plan](docs/DEVELOPMENT_PLAN.md) describes the broader vision; [Phase 12 validation](docs/PHASE_12_VALIDATION.md) records the remaining release gates.
 
 For a two-person implementation split and a practical daily-use sequence, see [the two-developer workflow](docs/TWO_DEVELOPER_WORKFLOW.md). Each developer uses a separate branch and local SQLite database. A.R.C. itself reads local Git state; only sharing source code between machines needs a Git push.
+
+The [VS Code extension](extension/README.md) provides Memory and Chat views, project selection, observation controls, configured test execution, and source inspection. Answers quote recorded evidence; optional local `qwen3:1.7b` selects relevant sources. Free-form generated summaries are not implemented.
 
 ## Set up on macOS
 
@@ -31,7 +33,7 @@ arc init --test-command "$PWD/.venv/bin/python -m pytest -q"
 arc state
 ```
 
-`arc index` sends the selected event summaries only to Ollama on `127.0.0.1`. Default search keeps cosine-ranked semantic results and says `"mode": "semantic"`. If Ollama is unavailable or records have not been indexed, ordinary search labels its FTS5 results `keyword_fallback`; `--semantic-only` instead requires the model and reports when indexing is needed. Indexing is still manual in this phase.
+`arc index` sends the selected event summaries only to Ollama on `127.0.0.1`. Default search keeps cosine-ranked semantic results and says `"mode": "semantic"`. If Ollama is unavailable or records have not been indexed, ordinary search labels its FTS5 results `keyword_fallback`; `--semantic-only` instead requires the model and reports when indexing is needed. An enabled observer indexes small batches automatically and retries pending records after model outages.
 
 The setup commands register the real project database without adding sample incidents. For a separate example run, use the [first hands-on test](#first-hands-on-test). For actual development, start a session and follow [the current-use steps](docs/TWO_DEVELOPER_WORKFLOW.md#start-using-the-finished-prototype).
 
@@ -56,7 +58,31 @@ The claim alone remains **planned**. A linked Git observation can raise it to **
 
 `arc capture` records changed paths and a Git fingerprint; it does not store source files or a Git diff. `arc test` stores the configured command, exit code, fingerprint, and a redacted tail of output. Avoid putting secrets in the configured command.
 
-**No GitHub push is needed.** A.R.C. reads the local Git repository, including uncommitted edits and new untracked files; it does not require a commit, a remote, or internet access. In the current prototype, recording is explicit: run `arc capture` after relevant changes, `arc test` to record a configured test run, and `arc index` to make new events semantically searchable. Automatic file observation and automatic session start/stop are future work.
+**No GitHub push is needed.** A.R.C. reads the local Git repository, including eligible uncommitted edits and untracked files. Manual commands remain available: `arc capture`, `arc test`, and `arc index`. Automatic observation requires an explicit opt-in and an active worker.
+
+## Observe and ask locally
+
+After registering the project, use the same database for CLI, extension, and MCP:
+
+```bash
+arc observer enable
+arc watch
+```
+
+The worker polls eligible Git state every five seconds, coalesces unchanged saves, records reachable commits made while it was stopped, and retries indexing two records at a time. It creates an observation session if no session is active. Sessions remain open across worker restarts; `arc session end` closes one explicitly. Run controls and queries from another terminal:
+
+```bash
+arc observer pause
+arc observer resume
+arc observer disable
+arc timeline --kind test --since 2026-10-01 --until 2026-10-10
+arc chat "Where did we leave off?" --keyword-only
+arc chat "What happened yesterday?" --timezone-offset 480
+```
+
+Resume establishes a new baseline and discards paused activity. Re-enabling a disabled observer also begins at current state. Worker restart while still enabled recovers its persisted commit cursor. Edits made and reverted between polls can be missed. External terminal tests are not automatically verified: use the configured test command through CLI or the extension.
+
+Chat returns inspectable event IDs and exact recorded summaries, including labels for unverified claims. `--keyword-only` avoids model requests. Otherwise retrieval uses local Ollama with labelled fallback, and optional `qwen3:1.7b` selects sources; install it with `ollama pull qwen3:1.7b`. Calendar words use the supplied UTC offset in minutes. History pages expose `next_offset`; queries never send the whole archive to chat. The chat model unloads after each request, and model calls sharing one database are serialized.
 
 ## First hands-on test
 

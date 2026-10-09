@@ -1,0 +1,34 @@
+{
+  "machine": "Windows-10-10.0.26200-SP0",
+  "python": "3.11.9",
+  "date_utc": "2026-10-09T15:21:26.447842+00:00",
+  "checks": {
+    "unchanged_saves_deduplicated_and_env_excluded": true,
+    "external_commit_recovered_after_worker_restart": true,
+    "failing_then_passing_test_retains_unconfirmed_task": true,
+    "pause_and_resume_discard_paused_activity": true,
+    "chat_citations_resolve_and_claims_stay_unverified": true,
+    "missing_rationale_is_not_invented": true,
+    "keyword_search_without_models": true,
+    "fresh_mcp_reads_same_evidence_ids": true,
+    "disable_stops_worker": true
+  },
+  "measurements": {
+    "observer_python_idle_cpu_percent": 0.283,
+    "observer_python_rss_bytes": 29306880,
+    "idle_sample_seconds": 5.516,
+    "save_observation_seconds": 3.625,
+    "evidence_chat_cli_seconds": 0.187,
+    "keyword_search_cli_seconds": 0.172,
+    "sqlite_bytes": 102400,
+    "duplicate_commit_events": 0,
+    "events_recorded": 7
+  },
+  "limits": [
+    "Observer samples exclude spawned Git and Ollama processes.",
+    "Physical network disconnection and target Mac M1 8GB checks are pending.",
+    "VS Code visual and keyboard checks require an extension host.",
+    "Local chat quotes evidence; Ollama source selection is optional."
+  ],
+  "installed_backend": "C:\\Users\\User\\OneDrive\\Documents\\GitHub\\A.R.C\\.venv\\Lib\\site-packages\\arc\\__init__.py"
+}

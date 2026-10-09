@@ -71,10 +71,29 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("event", help="inspect one evidence record").add_argument("event_id")
     commands.add_parser("checkpoint", help="store an unconfirmed handoff checkpoint")
     commands.add_parser("serve", help="run the local stdio MCP server")
+    observer = commands.add_parser('observer', help='control opt-in local collection')
+    observer.add_argument('action', choices=['status', 'enable', 'pause', 'resume', 'disable', 'poll'])
+    commands.add_parser('watch', help='run an enabled project observer until stopped')
+    timeline = commands.add_parser('timeline', help='inspect paginated recorded activity')
+    timeline.add_argument('--kind')
+    timeline.add_argument('--since')
+    timeline.add_argument('--until')
+    timeline.add_argument('--offset', type=int, default=0)
+    timeline.add_argument('--snapshot', type=int, help='snapshot_rowid returned by the first page')
+    ask = commands.add_parser('chat', help='answer from local, cited project evidence')
+    ask.add_argument('question')
+    ask.add_argument('--timezone-offset', type=int, default=0, help='local UTC offset in minutes')
+    ask.add_argument('--offset', type=int, default=0)
+    ask.add_argument('--snapshot', type=int, help='snapshot_rowid returned by the first page')
+    ask.add_argument('--keyword-only', action='store_true')
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    # CLI JSON is a UTF-8 contract even when Windows pipes default to a legacy code page.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8')
     args = build_parser().parse_args(argv)
     project_path = args.project.expanduser().resolve()
     db_path = args.db.expanduser().resolve()
@@ -89,6 +108,23 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "init":
             result = service.register_project(project_path, args.test_command)
+        elif args.command == 'observer':
+            from arc.observer import status, control, poll
+            result = (status(service, project_path) if args.action == 'status' else
+                      poll(service, project_path) if args.action == 'poll' else
+                      control(service, project_path, args.action))
+        elif args.command == 'watch':
+            from arc.observer import watch
+            watch(service, project_path)
+            return 0
+        elif args.command == 'timeline':
+            result = service.store.timeline(service._project(project_path)['id'],
+                offset=max(0, args.offset), kind=args.kind, since=args.since, until=args.until,
+                snapshot_rowid=args.snapshot)
+        elif args.command == 'chat':
+            from arc.chat import answer
+            result = answer(service, project_path, args.question, args.timezone_offset,
+                            args.keyword_only, args.offset, snapshot_rowid=args.snapshot)
         elif args.command == "session":
             if args.session_command == "start":
                 result = service.start_session(project_path, args.label)
@@ -129,6 +165,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             result = service.create_checkpoint(project_path)
         print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    except KeyboardInterrupt:
         return 0
     except (ValueError, EmbeddingUnavailable, OSError) as error:
         print(f"A.R.C.: {error}", file=sys.stderr)

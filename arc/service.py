@@ -195,6 +195,7 @@ class ArcService:
                                    "created_at": checkpoint["created_at"],
                                    "stale": checkpoint["fingerprint"] != observed.fingerprint}
                                   if checkpoint else None),
+            "index": self.store.index_counts(project['id'], self.memory.embedder.model),
         }
 
     def index_memory(self, path: Path) -> dict:

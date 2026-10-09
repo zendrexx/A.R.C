@@ -12,6 +12,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from arc.contracts import SearchHit
 from arc.store import Store
+from arc.model_gate import model_slot
 
 DEFAULT_MODEL = "all-minilm"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434/api/embed"
@@ -98,11 +99,12 @@ class MemoryEngine:
         self.store = store
         self.embedder = embedder or OllamaEmbedder()
 
-    def index_pending(self, project_id: str) -> dict:
-        events = self.store.pending_embeddings(project_id, self.embedder.model)
+    def index_pending(self, project_id: str, limit: int = 100) -> dict:
+        events = self.store.pending_embeddings(project_id, self.embedder.model, limit)
         count = 0
         for event in events:
-            vector = self.embedder.embed(normalize_index_text(event["summary"]))
+            with model_slot(self.store):
+                vector = self.embedder.embed(normalize_index_text(event["summary"]))
             self.store.put_vector(event["id"], self.embedder.model, vector)
             count += 1
         return {"indexed": count, "model": self.embedder.model}
@@ -133,7 +135,8 @@ class MemoryEngine:
         if keyword_only:
             return keyword_result("keyword")
         try:
-            query_vector = self.embedder.embed(query)
+            with model_slot(self.store):
+                query_vector = self.embedder.embed(query)
         except EmbeddingUnavailable as error:
             if not allow_keyword_fallback:
                 raise

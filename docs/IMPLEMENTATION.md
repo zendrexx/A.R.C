@@ -1,6 +1,18 @@
 # Current implementation notes
 
-The full vision and 14-day roadmap remain in [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md). This file describes the Phase 0 prototype plus the first explicit session-tracking step from Phase 1, so neither developer needs to infer a feature from the proposal.
+The full vision and roadmap remain in [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md). The current build integrates the CLI/MCP evidence store with opt-in observation, automatic indexing, timeline queries, cited evidence answers, and a VS Code extension. The older developer split below is historical planning; use [Phase 12 validation](PHASE_12_VALIDATION.md) for current acceptance status.
+
+## Phase 11 integration
+
+`arc/observer.py` provides explicit enable/pause/resume/disable controls and a polling worker. SQLite stores its baseline and commit cursor in `observer_state`. Concurrent collectors compare their cursors under a short write transaction, so one observation wins. Restart catches up reachable commits in batches of up to 100. Commit events use the original UTC commit time; `details.observed_at` records recovery time. Paused and disabled intervals are discarded when observation resumes. File bodies are hashed only for eligible paths and are never persisted; transient edits between five-second polls can be missed.
+
+An active observer embeds at most two summaries per retry. Unindexed events in SQLite are its durable queue; model failures leave them pending. A time-limited `model_lease` serializes embedding and chat calls across processes sharing one database. A killed process's lease expires after 90 seconds.
+
+`arc/chat.py` retrieves at most 12 events. Calendar queries use an explicit UTC offset. Optional local `qwen3:1.7b` selects event IDs from a bounded prompt; unknown IDs or model errors fall back to evidence. Responses quote exact recorded summaries, label claims as unverified, and expose citations. The model unloads after every request. Free-form generated narrative and historical daylight-saving timezone rules are not implemented. Timeline continuation includes `snapshot_rowid` so new events cannot shift older pages; pass it back as CLI `--snapshot` or the MCP argument of the same name.
+
+The extension supervises a project worker, reports observer/index state, runs configured tests, filters timelines, and opens cited evidence. Consent for connecting and collecting is separate. Windows cancellation terminates the virtual-environment process tree. Generation checks suppress replies from a disconnected project. Reopening an approved single-folder workspace restores the selection; explicit disconnect clears it. Activation tests mock VS Code; they do not certify appearance or keyboard behavior.
+
+Fingerprint calculation now excludes sensitive/generated paths before hashing. Existing test fingerprints or checkpoints from the old algorithm may become stale; rerun tests or create a new checkpoint to obtain current evidence. No old events are deleted.
 
 ## Current architecture
 
@@ -18,13 +30,13 @@ Explicit CLI action ──> ArcService ──> Git snapshot / configured test
 
 The first integrated contract is `ArcService` in `arc/service.py`. It accepts an explicitly registered `Path` for each operation. `arc/contracts.py` defines `GitSnapshot` and `SearchHit`. The memory engine receives a `Store` and an `Embedder` protocol, so Developer 1 can evaluate models without changing project collection or MCP tools. `MemoryEngine.index_pending(project_id)` writes vectors keyed by event ID. `MemoryEngine.search(project_id, query)` supports project and event-type scoping, semantic-only and keyword-only queries, and opt-in hybrid ranking. It returns `{mode, hits}` plus indexed/pending counts and labels keyword fallback explicitly. The `SearchHit` shape and default cosine scoring are unchanged.
 
-Search indexes a Unicode- and whitespace-normalized copy of each summary; it does not rewrite the recorded evidence. Default search reports cosine-ranked embeddings and falls back to FTS5 if the local model or index is unavailable. `--semantic-only` requires the local model and reports a notice if records need indexing. `--keyword-only` reports keyword rank scores. `--hybrid` combines cosine and FTS5 ranks with reciprocal rank fusion; its score is a rank-fusion value, not a probability. Responses include `score_kind` so consumers can interpret each mode. Indexing is still explicit in this phase.
+Search indexes a Unicode- and whitespace-normalized copy of each summary; it does not rewrite the recorded evidence. Default search reports cosine-ranked embeddings and falls back to FTS5 if the local model or index is unavailable. `--semantic-only` requires the local model and reports a notice if records need indexing. `--keyword-only` reports keyword rank scores. `--hybrid` combines cosine and FTS5 ranks with reciprocal rank fusion; its score is a rank-fusion value, not a probability. Responses include `score_kind` so consumers can interpret each mode. Manual indexing remains available alongside the opt-in worker.
 
 SQLite tables are `projects`, `sessions`, `tasks`, `events`, `vectors`, `checkpoints`, and `event_fts`. Events include type, timestamp, source, source reference, optional task ID, optional session ID, Git head, fingerprint, and JSON details. Vectors store only selected event summaries; there is no source-file embedding. A.R.C. stores its SQLite file with mode `0600` on macOS. Opening an older Phase 0 database adds the nullable session ID column without assigning old events to a session.
 
 `arc session start`, `status`, `list`, `show`, and `end` manage one explicit active session per project. New notes, Git captures, test results, and confirmation events join that session while it is active. `arc state` exposes the active session and session IDs on recent events; `arc_get_session_history` exposes its records to MCP clients. Events recorded outside a session retain a null session ID. This does not start observation automatically.
 
-Every search hit has an `arc:event/<id>` source reference. `arc event <id>` or the `arc_get_event` MCP tool retrieves that recorded evidence for inspection.
+Every search hit has an event ID and source reference (`arc:event/<id>` or `git:commit/<hash>`). `arc event <id>` or the `arc_get_event` MCP tool retrieves that recorded evidence for inspection. `arc_get_timeline` exposes filtered, stable history pages.
 
 ## Evidence semantics
 

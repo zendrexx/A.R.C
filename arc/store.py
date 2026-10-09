@@ -62,6 +62,11 @@ class Store:
                 created_at TEXT NOT NULL
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS event_fts USING fts5(event_id UNINDEXED, summary);
+            CREATE TABLE IF NOT EXISTS observer_state (
+                project_id TEXT PRIMARY KEY REFERENCES projects(id),
+                enabled INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0,
+                fingerprint TEXT, head TEXT, updated_at TEXT
+            );
         """)
         columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(events)")}
         if "session_id" not in columns:
@@ -188,7 +193,8 @@ class Store:
 
     def add_event(self, project_id: str, kind: str, summary: str, source: str,
                   source_ref: str, task_id: str | None = None, git_head: str | None = None,
-                  fingerprint: str | None = None, details: dict | None = None) -> dict:
+                  fingerprint: str | None = None, details: dict | None = None,
+                  commit: bool = True, created_at: str | None = None) -> dict:
         event_id = uuid4().hex
         if source_ref == "auto":
             source_ref = f"arc:event/{event_id}"
@@ -199,13 +205,40 @@ class Store:
                 git_head, fingerprint, details_json, created_at, session_id)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (event_id, project_id, task_id, kind, summary, source, source_ref,
-             git_head, fingerprint, json.dumps(details or {}), utc_now(),
+             git_head, fingerprint, json.dumps(details or {}), created_at or utc_now(),
              active["id"] if active else None),
         )
         self.connection.execute("INSERT INTO event_fts (event_id, summary) VALUES (?, ?)",
                                 (event_id, summary))
-        self.connection.commit()
+        if commit:
+            self.connection.commit()
         return self.get_event(event_id)
+
+    def timeline(self, project_id: str, limit: int = 20, offset: int = 0,
+                 kind: str | None = None, since: str | None = None,
+                 until: str | None = None, snapshot_rowid: int | None = None) -> dict:
+        def utc(value):
+            if not value:
+                return None
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc).isoformat(timespec='seconds')
+        since, until = utc(since), utc(until)
+        if since and until and since >= until:
+            raise ValueError('Timeline start must precede its exclusive end')
+        limit, offset = min(max(limit, 1), 100), max(offset, 0)
+        if snapshot_rowid is None:
+            snapshot_rowid = self.connection.execute('SELECT COALESCE(MAX(rowid),0) FROM events WHERE project_id=?', (project_id,)).fetchone()[0]
+        snapshot_rowid = max(0, snapshot_rowid)
+        clauses = 'project_id=? AND rowid<=? AND (? IS NULL OR kind=?) AND (? IS NULL OR created_at>=?) AND (? IS NULL OR created_at<?)'
+        args = (project_id, snapshot_rowid, kind, kind, since, since, until, until)
+        total = self.connection.execute('SELECT COUNT(*) FROM events WHERE ' + clauses, args).fetchone()[0]
+        rows = self.connection.execute('SELECT * FROM events WHERE ' + clauses +
+            ' ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?', (*args, limit, offset))
+        events = [self._event(row) for row in rows]
+        return {'events': events, 'total_events': total, 'snapshot_rowid': snapshot_rowid,
+                'next_offset': offset + len(events) if offset + len(events) < total else None}
 
     def get_event(self, event_id: str) -> dict | None:
         row = self.connection.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
@@ -230,12 +263,12 @@ class Store:
             )
         return [self._event(row) for row in rows]
 
-    def pending_embeddings(self, project_id: str, model: str) -> list[dict]:
+    def pending_embeddings(self, project_id: str, model: str, limit: int = 100) -> list[dict]:
         rows = self.connection.execute("""
             SELECT e.* FROM events e LEFT JOIN vectors v
             ON e.id=v.event_id AND v.model=?
-            WHERE e.project_id=? AND v.event_id IS NULL ORDER BY e.rowid
-        """, (model, project_id))
+            WHERE e.project_id=? AND v.event_id IS NULL ORDER BY e.rowid LIMIT ?
+        """, (model, project_id, max(1, min(limit, 100))))
         return [self._event(row) for row in rows]
 
     def put_vector(self, event_id: str, model: str, values: list[float]) -> None:

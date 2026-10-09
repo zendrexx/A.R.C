@@ -1,0 +1,35 @@
+{
+  "name": "arc-memory", "displayName": "A.R.C. — Project Memory",
+  "description": "Local evidence, tasks and continuity in your editor.",
+  "version": "0.1.0", "publisher": "arc-local",
+  "engines": {"vscode": "^1.90.0"}, "main": "./out/extension.js",
+  "categories": ["Other"],
+  "capabilities": {"untrustedWorkspaces": {"supported": false}, "virtualWorkspaces": false},
+  "scripts": {"compile": "tsc -p .", "vscode:prepublish": "npm run compile", "test": "npm run compile && node --test tests/backend.test.cjs tests/extension.test.cjs"},
+  "devDependencies": {"@types/node": "^20.0.0", "@types/vscode": "~1.90.0", "typescript": "^5.7.0"},
+  "contributes": {
+    "viewsContainers": {"activitybar": [{"id": "arc", "title": "A.R.C.", "icon": "media/arc.svg"}]},
+    "views": {"arc": [{"id": "arc.memory", "name": "Memory"}, {"id": "arc.chat", "name": "Chat", "type": "webview"}]},
+    "commands": [
+      {"command": "arc.connect", "title": "A.R.C.: Connect Project"},
+      {"command": "arc.refresh", "title": "A.R.C.: Refresh Memory", "icon": "$(refresh)"},
+      {"command": "arc.search", "title": "A.R.C.: Search Memory", "icon": "$(search)"},
+      {"command": "arc.capture", "title": "A.R.C.: Capture Git Evidence"},
+      {"command": "arc.checkpoint", "title": "A.R.C.: Create Candidate Checkpoint"},
+      {"command": "arc.index", "title": "A.R.C.: Index Pending Memory"},
+      {"command": "arc.disconnect", "title": "A.R.C.: Disconnect Project"},
+      {"command": "arc.observe", "title": "A.R.C.: Enable Automatic Observation"},
+      {"command": "arc.pause", "title": "A.R.C.: Pause Observation"},
+      {"command": "arc.resume", "title": "A.R.C.: Resume Observation"},
+      {"command": "arc.disable", "title": "A.R.C.: Disable Observation"},
+      {"command": "arc.timeline", "title": "A.R.C.: Browse Timeline"},
+      {"command": "arc.test", "title": "A.R.C.: Run Configured Test"}
+    ],
+    "menus": {"view/title": [{"command": "arc.refresh", "when": "view == arc.memory", "group": "navigation"}, {"command": "arc.search", "when": "view == arc.memory", "group": "navigation"}]},
+    "viewsWelcome": [{"view": "arc.memory", "contents": "Keep your project context close.\n[Connect a project](command:arc.connect)\nSelect a trusted local workspace to inspect recorded evidence."}],
+    "configuration": {"title": "A.R.C.", "properties": {
+      "arc.pythonPath": {"type": "string", "default": "", "description": "Python executable with arc-memory installed. Empty uses the project's .venv, then python3 (macOS/Linux) or python (Windows).", "scope": "machine"},
+      "arc.databasePath": {"type": "string", "default": "", "description": "Absolute SQLite path shared with CLI/MCP. Empty uses ARC_DB or the backend's default database.", "scope": "machine"}
+    }}
+  }
+}
