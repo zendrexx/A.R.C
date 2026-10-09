@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+assets/hand_landmarker.task
+data/profile.json
+
