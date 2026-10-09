@@ -11,7 +11,7 @@ from arc.contracts import GitSnapshot
 
 SENSITIVE_GLOBS = (
     ".env", ".env.*", "*.pem", "*.key", "*.p12", "*credentials*",
-    "*secret*", "*.sqlite", "*.sqlite3", "*.db", ".arc/*",
+    "*secret*", "*.sqlite", "*.sqlite3", "*.db", ".arc/*", ".arcignore",
 )
 GENERATED_DIRS = {'.git', '.arc', '.venv', 'node_modules', '__pycache__',
                   '.pytest_cache', 'out', 'build', 'dist'}
@@ -39,11 +39,27 @@ def _git(root: Path, *args: str, check: bool = True) -> bytes:
     return result.stdout if result.returncode == 0 else b""
 
 
-def _visible(path: str) -> bool:
+def exclusion_globs(root: Path) -> tuple[str, ...]:
+    """Extra exclusion patterns from the project's optional .arcignore file."""
+    target = root / '.arcignore'
+    if not target.is_file() or target.is_symlink() or target.stat().st_size > 64 * 1024:
+        return ()
+    lines = target.read_text(encoding='utf-8', errors='replace').splitlines()
+    return tuple(line.strip().lower().replace('\\', '/') for line in lines[:512]
+                 if line.strip() and not line.lstrip().startswith(('#', '!'))
+                 and len(line) <= 256)
+
+
+def _visible(path: str, extra_globs: tuple[str, ...] = ()) -> bool:
     normalized = path.replace("\\", "/").lower()
     name = Path(normalized).name
-    return not any(part in GENERATED_DIRS for part in normalized.split('/')) and not any(fnmatch.fnmatch(normalized, pattern) or fnmatch.fnmatch(name, pattern)
-                   for pattern in SENSITIVE_GLOBS)
+    if any(part in GENERATED_DIRS for part in normalized.split('/')):
+        return False
+    for pattern in (*SENSITIVE_GLOBS, *extra_globs):
+        if (fnmatch.fnmatch(normalized, pattern) or fnmatch.fnmatch(name, pattern)
+                or (pattern.endswith('/') and normalized.startswith(pattern))):
+            return False
+    return True
 
 
 def is_ancestor(root: Path, older: str, newer: str) -> bool:
@@ -57,9 +73,42 @@ def is_ancestor(root: Path, older: str, newer: str) -> bool:
     return result.returncode == 0
 
 
+def branch_name(root: Path) -> str:
+    return _git(root, 'symbolic-ref', '--quiet', '--short', 'HEAD', check=False).decode(
+        'utf-8', 'replace').strip() or '(detached HEAD)'
+
+
+def changed_file_statuses(root: Path) -> list[dict]:
+    """Eligible Git paths and change types; no file content or diff is read."""
+    fields = _git(root, 'status', '--porcelain=v1', '-z', '--untracked-files=all').decode(
+        'utf-8', 'surrogateescape').split('\0')
+    result = []
+    extra_globs = exclusion_globs(root)
+    index = 0
+    while index < len(fields) and fields[index]:
+        entry = fields[index]
+        code, path = entry[:2], entry[3:]
+        original = None
+        if 'R' in code or 'C' in code:
+            index += 1
+            original = fields[index] if index < len(fields) else None
+        index += 1
+        if not _visible(path, extra_globs) or (original and not _visible(original, extra_globs)):
+            continue
+        kind = ('renamed' if 'R' in code else 'copied' if 'C' in code else
+                'deleted' if 'D' in code else 'created' if code == '??' or 'A' in code else
+                'modified')
+        item = {'path': path, 'status': kind}
+        if original:
+            item['from_path'] = original
+        result.append(item)
+    return result
+
+
 def snapshot(project_path: Path) -> GitSnapshot:
     root_text = _git(project_path, "rev-parse", "--show-toplevel").decode().strip()
     root = Path(root_text).resolve()
+    extra_globs = exclusion_globs(root)
     head = _git(root, "rev-parse", "HEAD", check=False).decode().strip() or "UNBORN"
     if head == "UNBORN":
         changed = _git(root, "diff", "--name-only", "-z") + _git(
@@ -72,7 +121,7 @@ def snapshot(project_path: Path) -> GitSnapshot:
     digest.update(head.encode())
     all_changed = {
         name for name in (changed + untracked).decode("utf-8", "surrogateescape").split("\0")
-        if name and _visible(name)
+        if name and _visible(name, extra_globs)
     }
     # Hash only eligible paths, before reading any content. No diff is retained.
     for name in sorted(all_changed):

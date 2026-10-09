@@ -75,7 +75,7 @@ No raw source content is stored or uploaded. Explicit notes and captured test-ou
 
 ## Work from this baseline
 
-**Implementation:** Phase 6 dashboard views and local privacy controls are implemented. The unfamiliar-user completion trial and broader incident evaluation remain in Phase 7. The Phase 8 opt-in watcher (`arc watch`, `arc observer`) is implemented and supervised by the Phase 11 VS Code extension; Phase 12 validation gates in PHASE_12_VALIDATION.md remain open. Preserve evidence semantics, `arc/contracts.py` shapes, and existing MCP tool behavior while extending them.
+**Implementation:** Phase 6 dashboard views and local privacy controls are implemented. The unfamiliar-user completion trial and broader incident evaluation remain in Phase 7. The Phase 8 opt-in watcher (`arc watch`, `arc observer`) is implemented and supervised by the Phase 11 VS Code extension; Phase 12 validation gates in PHASE_12_VALIDATION.md remain open. The Phase 13 zero-friction lifecycle (`arc workspace open|touch|close`, shared automatic sessions, crash recovery, sidebar handoff) is implemented and covered by automated tests; real VS Code host verification remains open. Preserve evidence semantics, `arc/contracts.py` shapes, and existing MCP tool behavior while extending them.
 
 **Documentation and video:** Follow [DOCUMENTATION_AND_VIDEO.md](DOCUMENTATION_AND_VIDEO.md). Validate the README on a clean terminal, record exact commands/results, explain current limitations, and prepare the promotion and backup demo videos from real behavior.
 

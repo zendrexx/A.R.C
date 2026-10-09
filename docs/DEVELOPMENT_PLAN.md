@@ -1041,7 +1041,7 @@ The main user journey succeeds repeatedly on the demo machine with no cloud depe
 
 ## Future expansion after Phase 7
 
-Phases 0–7 remain the original MVP roadmap. The following phases describe the expansion after that roadmap. Phases 8–11 have working implementations; Phase 10's focused offline gate passed on 2026-10-10. Phase 12 integrated, visual, and resource validation remains open. The original estimates assumed parallel coding and are historical rather than current forecasts.
+Phases 0–7 remain the original MVP roadmap. The following phases describe the expansion after that roadmap. Phases 8–11 and 13 have working implementations; Phase 10's focused offline gate passed on 2026-10-10. Phase 12 integrated, visual, and resource validation remains open; Phase 14 collects the deferred observation and chat items. The original estimates assumed parallel coding and are historical rather than current forecasts.
 
 | Order | Phase | Original estimate | Dependency | User-visible milestone |
 |---|---|---:|---|---|
@@ -1050,6 +1050,8 @@ Phases 0–7 remain the original MVP roadmap. The following phases describe the 
 | 3 | Phase 10 — Offline AI chat | 3–4 days | Phase 9 evidence and search | Grounded answers to project-history questions |
 | 4 | Phase 11 — VS Code extension | 3–4 days | Stable Python query and control contract | Chat and Memory views for the selected workspace |
 | 5 | Phase 12 — Validation and tuning | 2–3 days | Integrated phases 8–11 | Repeatable offline workflow within the demo machine's resource budget |
+| 6 | Phase 13 — Zero-friction automation | 2–3 days | Phases 8, 11 | Editor windows share one automatic session; reopening restores memory and a cited handoff |
+| 7 | Phase 14 — Observation breadth and chat depth | 2–3 days | Phases 9, 13 | Opt-in Git hooks, supported test/diagnostic adapters, verified generative sidebar answers |
 
 ### Shared contract before Phase 8
 
@@ -1174,9 +1176,124 @@ On the Mac M1 8GB machine, a new developer can open a project in VS Code, have s
 
 ---
 
+## Phase 13 — Zero-Friction Automation (Implemented; Editor Validation Open)
+
+**Target: 2–3 working days after Phase 11**
+
+### Objective
+
+Make A.R.C. record and restore development memory during ordinary VS Code use without a routine sequence of CLI commands: **open a project → work normally → leave → return → recover the evidence-backed context.** Manual `arc session`, `arc capture`, and `arc handoff` commands remain available but are no longer required for the default loop.
+
+### Milestones
+
+1. **Automatic startup and stable database discovery.** On connect, the extension resolves the Git root, reuses the project's existing `.arc/arc.sqlite3` (found by walking up from the workspace folder, or via `arc.databasePath`/`ARC_DB`), and restores the same project memory across restarts. Approved single-folder and multi-root workspaces reconnect without a picker.
+2. **Debounced evidence capture.** The supervised observer polls Git state, deduplicates by fingerprint, and records change-type detail (created/modified/renamed/deleted/copied), branch transitions, and recovered commits. `.arcignore` adds per-project exclusions on top of the sensitive-path list. File contents are still never stored.
+3. **Crash-safe session lifecycle.** Each approved editor connection registers a `workspace_connections` lease (`owner_id` + pid, renewed by periodic `workspace touch` calls). All windows of a project share one `automatic` session; the last close ends it. Dead owners are pruned by heartbeat/pid checks, so a crash or killed extension host is recovered on the next open instead of being lost. Idle sessions rotate after 30 minutes of no activity, ending at their last activity time.
+4. **Automatic handoff.** `project_handoff` gains `previous_session` (latest evidence from the last ended session) and `last_test` (with a stale flag when the Git fingerprint moved on). The sidebar shows a Handoff section with source-linked evidence. Everything works without Ollama.
+5. **MCP startup integration.** The same handoff stays available through `arc_get_project_handoff`/`arc_get_task_review` for a fresh Codex or compatible agent session. Automatic injection into an agent conversation is not claimed; the agent must call the tool.
+6. **Automatic background indexing.** The existing pending-record queue and observer indexing loop are unchanged: evidence accumulates while Ollama is down and indexes when it returns.
+7. **Sidebar integration.** Overview shows branch, session, collection, and index status; Timeline lists the latest records with a full-timeline command; Handoff shows the previous session and unfinished work; the existing Chat view remains search-based.
+
+### Implementation status (2026-10-10)
+
+Implemented: `arc workspace open|touch|close` CLI, `Store.workspace_open/touch/close` with lease pruning and automatic session rotation, `sessions.origin`/`last_activity_at`/checkpoint columns, observer `branch` tracking and `changed_file_statuses` with `.arcignore` support, `project_handoff.previous_session`/`last_test`, extension `closeWorkspace`, periodic touch in the refresh loop, Git-root database discovery, multi-root restore, and sidebar Handoff/Timeline rows. Python suite: 57 passed; extension suite: 18 passed. Focused tests cover session sharing across two windows, stale-owner recovery, idle rotation, periodic checkpoints, nested-folder project resolution, change-type and branch events, deduplication, and `.arcignore`/sensitive exclusions.
+
+Remaining: real VS Code host verification of the automatic open/touch/close loop (tests stub the backend), verified agent-side startup retrieval by Codex, and the Phase 12 resource/offline gates above.
+
+### Completion gate
+
+Reopening an approved project in VS Code restores the same database and shows a handoff of the previous session; Git changes during a session are recorded without `arc capture`; rapid edits do not duplicate events; killing the extension host does not lose persisted evidence and the next open recovers a session boundary; the handoff works with Ollama stopped; a fresh MCP session can retrieve unfinished tasks; two windows on one project share and close one session; sensitive and `.arcignore`d paths stay out of memory.
+
+---
+
+## Phase 14 — Observation Breadth and Chat Depth (Future)
+
+**Target: 2–3 working days after Phase 13**
+
+### Objective
+
+Widen what A.R.C. can observe through supported, opt-in mechanisms and deepen the chatbot's verified generative answers, without weakening the evidence rules.
+
+### Implementation order
+
+1. **Opt-in Git hooks.** Add `arc hooks install|remove` writing `post-commit`, `post-checkout`, and `post-rewrite` hooks into an approved repository for faster, outside-editor commit notification. Hooks only touch a marker file the worker polls; they never write events directly, never block the Git command, and are removable. Polling and the commit cursor remain the fallback so a missing or removed hook loses nothing.
+2. **Supported test and diagnostic adapters.** Record test outcomes from explicitly configured integrations: the existing configured test command, VS Code task completions whose command matches the configured one, or structured reports (pytest `--json-report`, JUnit XML) in a configured path. Editor diagnostics may be recorded as error observations; a diagnostic disappearing is not proof of a fix. Anything outside a supported adapter stays "unknown," never inferred.
+3. **Verified generative sidebar answers.** Close the Phase 12 accuracy concern about model-written introductions: evaluate `qwen3:1.7b` answer text against retrieved evidence on a labelled question set, reject or strip unsupported sentences, and gate the generative path on measured citation and wording accuracy. Until then the sidebar presents the deterministic, evidence-rendered answer.
+4. **Noise and resource tuning.** Adaptive debounce for save bursts, per-kind suppression rules, and idle back-off for the poll loop, guided by Phase 12 measurements on the M1 8GB machine.
+
+### Milestone and acceptance
+
+- A commit made in a detached terminal with hooks installed reaches the worker within one poll of the marker; uninstalling hooks restores the polling-only path and the cursor still recovers the commit.
+- A test run through a supported adapter records command, exit code, and fingerprint; an arbitrary terminal command or unsaved diagnostic still cannot become a passing test.
+- A labelled question set meets the citation/wording gate before generative phrasing is enabled in the sidebar; falling back to deterministic rendering keeps answering offline.
+- Observer idle CPU and RSS stay within the Phase 12 budgets during an editing session with hooks and adapters active.
+
+### Explicit non-goals
+
+- No keystroke logging, file-content capture, cloud telemetry, or remote storage.
+- No automatic test execution, hook installation, or tracking without prior user authorization.
+- No task completion inferred from file changes, diagnostics clearing, or agent claims.
+
+---
+
+## Feature guide — capability → phase → status
+
+This guide maps each requested capability to the phase that owns it. Phase details above carry the full architecture, milestones, and acceptance criteria.
+
+### Automatic development memory
+
+| Capability | Phase | Status |
+|---|---|---|
+| Monitor file saves, creates, renames, deletes via Git status polling; debounced, deduplicated by fingerprint | 8, 13 | Implemented |
+| Record commits made outside VS Code through the persisted commit cursor | 8 | Implemented |
+| Opt-in Git hooks for faster outside-editor notification | 14 | Future |
+| Change-type detail (created/modified/renamed/deleted) and branch transitions | 13 | Implemented |
+| Timestamped events in SQLite with `arc:event/<id>` references | 0 | Implemented |
+| Automatic embedding of new summaries, queued and retried when Ollama is down | 9 | Implemented (observer indexing loop); richer filters remain |
+| Test results via explicitly configured command or supported adapter | 4, 9, 14 | Configured command implemented; adapters future |
+| Error/fix detection from supported diagnostics and test events | 9, 14 | Future |
+| Never mark a task complete without evidence; file changes ≠ completion | 0, 8, 9 | Enforced by verification rules |
+| Sensitive-path filtering, `.arcignore`, pause/resume/disable | 8, 13 | Implemented |
+| Automatic session lifecycle: open, share across windows, checkpoint, close, crash recovery | 13 | Implemented (real VS Code host verification open) |
+
+### Offline AI chatbot
+
+| Capability | Phase | Status |
+|---|---|---|
+| `all-minilm` retrieval + `qwen3:1.7b` conversation, fully local via Ollama | 2, 10 | Implemented |
+| "What happened today / yesterday / on a date" with correct local dates | 10 | Implemented; focused offline gate passed |
+| "Summarize our development timeline" over long history via bounded windows, not whole-archive prompts | 10 | Implemented |
+| "What errors did we fix?" from recorded failure/fix evidence | 5, 10 | Implemented for recorded incidents; automatic error detection is Phase 14 |
+| "Why did we implement this?" from recorded decisions/notes only | 10 | Implemented; missing rationale reported as such |
+| "Where did we leave off?" via handoff with unfinished tasks and cited evidence | 4, 10, 13 | Implemented; handoff works without Ollama |
+| Verified generative phrasing in the sidebar (vs. deterministic rendering) | 14 | Future — gated on accuracy evaluation |
+
+### VS Code extension
+
+| Capability | Phase | Status |
+|---|---|---|
+| One view container: A.R.C. Chat (webview) + A.R.C. Memory (tree) | 11 | Implemented |
+| Workspace detection, approval gate, project-scoped Python backend over stdio | 11 | Implemented |
+| Automatic reconnect of approved projects, multi-root isolation, stable `.arc` database discovery | 13 | Implemented |
+| Sidebar Overview/Timeline/Handoff with cited evidence | 13 | Implemented |
+| Pause/resume/disable controls from the editor | 8, 11 | Implemented |
+| MCP server unchanged so coding agents retrieve the same evidence | 0, 11 | Implemented; agent-side startup retrieval unverified |
+
+### Requirements
+
+| Requirement | Phase | Status |
+|---|---|---|
+| Fully functional offline after setup | 12 | Partially gated: offline CLI/chat/MCP trial passed; integrated VS Code run open |
+| Optimized for Mac M1 8GB, minimal RAM/CPU | 12 | In progress: one idle sample 0.2% CPU / ~28 MB RSS; sustained budgets open |
+| Background tracking while development is active | 8, 13 | Implemented |
+| No cloud AI, external database, or extra services | all | Architectural invariant |
+| Phase 0 functionality and evidence-verification rules preserved | all | Enforced; suites pass |
+
+---
+
 # PART 8 — TEAM RESPONSIBILITIES
 
-The team has one implementation developer and one documentation/video lead. See [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md) for the current commands and implementation order, [DOCUMENTATION_AND_VIDEO.md](DOCUMENTATION_AND_VIDEO.md) for the teammate's deliverables, and [TEST_RESULTS.md](TEST_RESULTS.md) for actual results and missing evidence. Phases 8–11 have working implementations; Phase 12 validation remains open.
+The team has one implementation developer and one documentation/video lead. See [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md) for the current commands and implementation order, [DOCUMENTATION_AND_VIDEO.md](DOCUMENTATION_AND_VIDEO.md) for the teammate's deliverables, and [TEST_RESULTS.md](TEST_RESULTS.md) for actual results and missing evidence. Phases 8–11 and 13 have working implementations; Phase 12 validation remains open and Phase 14 is future work.
 
 ## Implementation developer
 

@@ -84,6 +84,13 @@ export class Backend {
     return child.pid;
   }
   get busy(): boolean {return Boolean(this.child || this.control);}
+  closeWorkspace(ownerId: string): void {
+    const argv = ['-m', 'arc.cli', '--project', this.project];
+    if (this.database) argv.push('--db', this.database);
+    argv.push('workspace', 'close', ownerId);
+    execFile(this.python, argv, {cwd: this.project, windowsHide: true, timeout: 10000,
+      env: {...process.env, PYTHONIOENCODING: 'utf-8'}}, () => {});
+  }
   stopObserver(): void {terminate(this.worker); this.worker = undefined;}
   dispose(): void { this.disposed = true; terminate(this.child); terminate(this.control); this.stopObserver(); }
 }
