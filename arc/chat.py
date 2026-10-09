@@ -314,7 +314,18 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
     fingerprint = service.project_state(path)['git']['fingerprint']
     lines = []
     if not events:
-        if rationale:
+        if review:
+            state = review['current_state']
+            text = (f"Task {state['title']} ({state['id']}) currently has evidence state "
+                    f"{state['state']}. No linked event was recorded for this page.")
+            if review['missing']:
+                text += '\nStill needed: ' + '; '.join(review['missing'])
+        elif overview and overview['suggested_next_task']:
+            suggested = overview['suggested_next_task']
+            text = (f"Suggested next task: {suggested['title']} ({suggested['id']}); "
+                    f"current state: {suggested['state']}. {suggested['next_step']}. "
+                    'No supporting event was selected for this answer.')
+        elif rationale:
             text = 'No recorded rationale supports this answer.'
         elif fix_question:
             text = 'No reported resolution or recorded error supports this answer.'
@@ -324,8 +335,8 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
             text = 'No matching recorded evidence supports this answer.'
     else:
         if fix_question:
-            lines.append('Reported error resolutions; a report and linked test do not prove the error is fixed.')
             if groups:
+                lines.append('Reported error resolutions; a report and linked test do not prove the error is fixed.')
                 for group in groups:
                     lines.append(_line(group['error'], fingerprint, offset_minutes))
                     lines.append(_line(group['resolution'], fingerprint, offset_minutes))
@@ -335,7 +346,7 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
                     else:
                         lines.append('No configured test is linked to this reported resolution.')
             else:
-                lines.append('No incident links are available for these records.')
+                lines.append('No reported resolution was recorded for this period. Recorded errors:')
                 lines.extend(_line(event, fingerprint, offset_minutes) for event in events)
         else:
             if overview:

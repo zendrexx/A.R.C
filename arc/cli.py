@@ -130,7 +130,8 @@ def build_parser() -> argparse.ArgumentParser:
     timeline.add_argument('--snapshot', type=int, help='snapshot_rowid returned by the first page')
     ask = commands.add_parser('chat', help='answer from local, cited project evidence')
     ask.add_argument('question')
-    ask.add_argument('--timezone-offset', type=int, default=0, help='local UTC offset in minutes')
+    ask.add_argument('--timezone-offset', type=int,
+                     help='local UTC offset in minutes (default: this machine\'s current offset)')
     ask.add_argument('--offset', type=int, default=0)
     ask.add_argument('--snapshot', type=int, help='snapshot_rowid returned by the first page')
     ask.add_argument('--keyword-only', action='store_true')
