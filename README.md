@@ -8,12 +8,22 @@ A.R.C. is an active prototype for macOS. It includes a command-line app, a local
 
 1. **Remember project context.** Save decisions, errors, attempted fixes, sessions, and selected Git activity. Search the record by meaning with a local embedding model, or use keyword search without a model.
 2. **Hand off work to the next session.** `arc handoff` shows unfinished tasks, current evidence, the latest session, and selected decisions and failures with event references. A new coding agent can request the same handoff through MCP.
-3. **Ask about recorded work.** `arc chat` answers with exact recorded summaries and citations. The local `qwen3:1.7b` model selects relevant sources; A.R.C. does not generate a free-form story or treat an agent's claim as proof.
+3. **Ask about recorded work.** `arc chat` answers with exact recorded summaries and citations. The local `qwen3:1.7b` model can select sources and write a short introduction; inspect the cited records before relying on its wording. An agent's claim is never proof of completion.
 4. **Check progress before calling it done.** Link a task to observed Git changes and a configured test run. A.R.C. distinguishes planned, observed, tested, and explicitly confirmed work. Old tests become historical when the Git fingerprint changes.
 5. **See the project in one place.** The browser dashboard shows the handoff, tasks and evidence, search, timeline, checkpoints, incidents, and local AI status. The VS Code extension adds Memory and Chat views in the editor.
 6. **Collect routine changes automatically when you choose.** An opt-in observer records eligible Git path changes and commits, coalesces repeated saves, and indexes pending summaries locally. It does not run tests or infer why a change was made; record those explicitly.
 
 Everything A.R.C. records lives in a local SQLite database. Git observation stores paths, commit metadata, and a fingerprint, not file bodies or diffs. A.R.C. can work after installation without an internet connection when its local Ollama models are already downloaded. The [recorded offline trial](docs/PHASE_12_VALIDATION.md#physical-offline-trial--2026-10-10) covers CLI search, cited chat, and a fresh MCP handoff.
+
+## Phase 10–12 progress
+
+| Phase | Current status |
+|---|---|
+| **10 · Offline project-history chat** | **Focused gate complete.** A [physical Wi-Fi-off trial](docs/phase10-offline-report.json) on the M1 Mac answered the planned questions from local evidence, resolved every returned citation, and handled missing rationale and long timelines. |
+| **11 · VS Code Memory and Chat** | **Implemented.** The latest [validation run](docs/phase11-12-validation-report.json) passed 15 compiled extension tests. A live Extension Development Host review remains open. |
+| **12 · Reliability and release validation** | **In progress.** The same run passed 54 Python tests and a disposable observer, test, chat, and MCP workflow. The [Phase 12 checklist](docs/PHASE_12_VALIDATION.md) still calls for a full offline editor workflow, sustained resource measurements, broader answer accuracy checks, and a backup recording. |
+
+The current chat can write a model-generated introduction. One [live Phase 12 answer](docs/PHASE_12_VALIDATION.md#phase-1112-validation-rerun--2026-10-10) cited the right decision but added reasons absent from that record, so a valid citation alone does not establish that all of the model's wording is supported.
 
 ## Set up on macOS
 

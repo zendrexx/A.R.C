@@ -133,7 +133,8 @@ def calendar_bounds(question: str, offset_minutes: int = 0, now=None):
 def _question_bounds(question: str, offset_minutes: int, now=None):
     relative = calendar_bounds(question, offset_minutes, now)
     if relative[0]:
-        word = re.search(r'\b(today|yesterday)\b', question, re.I)[1].lower()
+        match = re.search(r'\b(today|yesterday)\b', question, re.I)
+        word = match[1].lower() if match else 'today'
         local_day = datetime.fromisoformat(relative[0]).astimezone(
             timezone(timedelta(minutes=offset_minutes))).date()
         return *relative, f'{word.capitalize()} ({local_day.isoformat()})'
@@ -257,6 +258,10 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
     task = _task_for_question(tasks, question) if not rationale else None
     handoff = bool(re.search(r'leave off|unfinished|what(?:\s+should\s+we)?\s+do next|next task', question, re.I))
     broad = bool(re.search(r'timeline|what happened|summari[sz]e|summary|what changed', question, re.I))
+    latest = bool(re.search(r'\b(most recent|latest|last change)\b', question, re.I))
+    oldest = bool(re.search(r'\b(oldest|earliest|first change|first commit)\b', question, re.I))
+    single = latest or oldest
+    changes = bool(re.search(r'\b(changes?|changed|commits?)\b', question, re.I))
     mode = 'evidence'
     notice = None
     page = None
@@ -265,9 +270,19 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
     overview = None
     day_counts = None
     milestones = []
+    pinned_events = []
     use_model = False
     model_rejected_candidates = False
-    if fix_question:
+    model_answer = None
+    if single:
+        page = service.store.timeline(project['id'], 1, 0,
+                                      kind='git' if changes else None,
+                                      since=since, until=until,
+                                      snapshot_rowid=snapshot_rowid,
+                                      oldest_first=oldest)
+        events = page['events']
+        retrieval = 'timeline'
+    elif fix_question:
         page = service.store.timeline(project['id'], 4, offset, kind='resolution',
                                       since=since, until=until,
                                       snapshot_rowid=snapshot_rowid)
@@ -328,8 +343,12 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
         overview = service.project_handoff(path)
         selected = [service.get_event(path, item['id'])
                     for item in overview['key_evidence']]
+        suggested = overview['suggested_next_task']
+        if suggested:
+            pinned_events = service.store.timeline(
+                project['id'], 1, kind='claim', task_id=suggested['id'])['events']
         recent = service.store.timeline(project['id'], 2)['events']
-        events = _unique([*selected, *recent])
+        events = _unique([*pinned_events, *selected, *recent])
         retrieval = 'handoff'
         use_model = True
     elif since or until or broad or error_question:
@@ -363,13 +382,16 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
                     model_answer, ids = model.respond(question, events)
                 else:
                     ids = model.select(question, events)
-                model_rejected_candidates = not ids
->>>>>>> baac6cfcbebdc61f0cbd9452337153979cbd3484
-            events = [e for e in events if e['id'] in ids]
+            valid = {event['id'] for event in events}
+            if (not isinstance(ids, list) or any(not isinstance(item, str) or item not in valid
+                                                   for item in ids)):
+                raise ValueError('Model cited evidence outside the retrieved set')
+            model_rejected_candidates = not ids
+            events = _unique([*pinned_events, *(e for e in events if e['id'] in ids)])
             mode = 'local_model_answer' if model_answer else 'local_model_selection'
         except (EmbeddingUnavailable, URLError, TimeoutError, OSError, ValueError, KeyError, TypeError) as error:
             notice = f'Local source selection unavailable; showing recorded evidence. {error}'
-    next_offset = page['next_offset'] if page else None
+    next_offset = page['next_offset'] if page and not single else None
     if page:
         snapshot_rowid = page['snapshot_rowid']
     fingerprint = service.project_state(path)['git']['fingerprint']
@@ -453,18 +475,14 @@ def answer(service, path, question: str, offset_minutes: int | None = None,
             ordered = list(reversed(events)) if page else events
             lines.extend(_line(event, fingerprint, offset_minutes) for event in ordered)
         text = '\n'.join(lines)
-        if model_answer:
-            intro = model_answer
     if next_offset is not None:
         text += '\nMore history is available; continue with next_offset and snapshot_rowid.'
     citation_events = _unique([*events, *milestones], PAGE_SIZE + 4)
-    if model_answer:
-        intro = model_answer
-    intro += '\nMore recorded history is available below.'
+    intro = model_answer or '\n'.join(line for line in text.splitlines()
+                                      if not line.startswith('[arc:event/'))
     return {'answer': text, 'answer_intro': intro, 'mode': mode, 'retrieval_mode': retrieval,
             'citations': [{**{k: e[k] for k in ('id', 'source_ref', 'created_at', 'summary', 'kind')},
                            'changed_paths': e['details'].get('changed_paths', [])} for e in citation_events],
->>>>>>> baac6cfcbebdc61f0cbd9452337153979cbd3484
             'next_offset': next_offset, 'snapshot_rowid': snapshot_rowid,
             'since': since, 'until': until, 'notice': notice,
             'total_events': page['total_events'] if page else None,

@@ -327,8 +327,8 @@ class Store:
                  task_id: str | None = None,
                  kinds: tuple[str, ...] | None = None,
                  collapse_observations: bool = False,
-                 offset_minutes: int = 0) -> dict:
->>>>>>> baac6cfcbebdc61f0cbd9452337153979cbd3484
+                 offset_minutes: int = 0,
+                 oldest_first: bool = False) -> dict:
         def utc(value):
             if not value:
                 return None
@@ -366,10 +366,45 @@ class Store:
             args.append(until)
         where = ' AND '.join(clauses)
         total = self.connection.execute('SELECT COUNT(*) FROM events WHERE ' + where, args).fetchone()[0]
-        rows = self.connection.execute('SELECT * FROM events WHERE ' + where +
-            ' ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?', (*args, limit, offset))
-        events = [self._event(row) for row in rows]
->>>>>>> baac6cfcbebdc61f0cbd9452337153979cbd3484
+        direction = 'ASC' if oldest_first else 'DESC'
+        if collapse_observations:
+            if not -840 <= offset_minutes <= 840:
+                raise ValueError('Timezone offset must be within 14 hours of UTC')
+            base = ('''WITH base AS (
+                SELECT events.*, events.rowid AS event_rowid,
+                  CASE WHEN kind='git' AND source='observer'
+                    THEN 'observer:' || date(created_at, ?)
+                    ELSE id END AS group_key
+                FROM events WHERE ''' + where + '''
+              ), ranked AS (
+                SELECT base.*, ROW_NUMBER() OVER (
+                  PARTITION BY group_key ORDER BY created_at DESC, event_rowid DESC
+                ) AS group_rank,
+                COUNT(*) OVER (PARTITION BY group_key) AS repeated_count
+                FROM base
+              )''')
+            arguments = (f'{offset_minutes:+d} minutes', *args)
+            total_entries = self.connection.execute(
+                base + ' SELECT COUNT(*) FROM ranked WHERE group_rank=1', arguments
+            ).fetchone()[0]
+            rows = self.connection.execute(
+                base + ' SELECT * FROM ranked WHERE group_rank=1 '
+                + f'ORDER BY created_at {direction}, event_rowid {direction} LIMIT ? OFFSET ?',
+                (*arguments, limit, offset),
+            )
+            events = []
+            for row in rows:
+                event = self._event(row)
+                event['repeat_count'] = event.pop('repeated_count')
+                for extra in ('event_rowid', 'group_key', 'group_rank'):
+                    event.pop(extra)
+                events.append(event)
+        else:
+            total_entries = total
+            rows = self.connection.execute('SELECT * FROM events WHERE ' + where +
+                f' ORDER BY created_at {direction}, rowid {direction} LIMIT ? OFFSET ?',
+                (*args, limit, offset))
+            events = [self._event(row) for row in rows]
         return {'events': events, 'total_events': total, 'snapshot_rowid': snapshot_rowid,
                 'total_entries': total_entries,
                 'next_offset': offset + len(events)

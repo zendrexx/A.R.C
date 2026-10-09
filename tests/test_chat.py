@@ -63,6 +63,17 @@ def test_task_answer_shows_state_without_claiming_completion(service, sample_rep
     assert 'completed_confirmed' not in result['answer']
 
 
+def test_handoff_retains_unverified_task_claim_after_later_activity(service, sample_repo):
+    task = service.add_task(sample_repo, 'Login workflow')
+    claim = service.record_note(sample_repo, 'claim', 'Login is complete', task['id'])
+    for index in range(8):
+        service.record_note(sample_repo, 'note', f'Later unrelated activity {index}')
+    result = answer(service, sample_repo, 'Where did we leave off?', keyword_only=True)
+    assert claim['id'] in {item['id'] for item in result['citations']}
+    assert 'Unverified claim' in result['answer']
+    assert 'planned' in result['answer']
+
+
 def test_fix_question_keeps_reported_resolution_separate_from_tests(service, sample_repo):
     error = service.record_note(sample_repo, 'error', 'Migration failed: missing table')
     incident = service.open_incident(sample_repo, error['id'], 'missing table')

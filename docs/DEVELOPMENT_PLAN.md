@@ -485,7 +485,7 @@ Prioritize information based on semantic relevance, current project identity, re
 
 **E. Optional local source selection**
 
-The current chat path can use `qwen3:1.7b` to select relevant source IDs from retrieved evidence. It then displays the recorded evidence with references. Free-form generated handoff summaries are not implemented; any future summaries must preserve references and uncertainty.
+The chat path retrieves bounded project evidence and can use `qwen3:1.7b` to select source IDs and write a short introduction. It checks the IDs and displays the recorded evidence with references. Model prose may add unsupported details even when a citation is valid; [Phase 12 validation](PHASE_12_VALIDATION.md) tracks that risk.
 
 ## 4.2 What should NOT use AI?
 
@@ -1108,7 +1108,7 @@ Keep searchable memory current and attach trustworthy test and error evidence wh
 
 **Target: 3–4 working days after Phase 9**
 
-**Implementation and focused acceptance (2026-10-10):** `arc/chat.py` now routes local-day and explicit-date questions, task histories, error/resolution histories, rationale, handoff, and long timelines to bounded project-scoped evidence. It groups repeated observer Git events by local day for chat summaries while leaving the raw timeline intact, adds local-day counts and earlier source-linked milestones, and uses snapshot-stable continuation. `qwen3:1.7b` selects source IDs only; deterministic rendering preserves verification labels and handles missing rationale without inventing an explanation. [The recorded M1 8 GB Wi-Fi-off run](phase10-offline-report.json) passed the six questions below plus a named dashboard-rationale question; outbound TCP was unreachable and all returned citation IDs resolved. Python tests passed 48/48 and extension tests passed 12/12. This focused gate does not close the Phase 12 VS Code visual, full workflow, resource, or broader accuracy checks.
+**Implementation and focused acceptance (2026-10-10):** `arc/chat.py` routes local-day and explicit-date questions, task histories, error/resolution histories, rationale, handoff, and long timelines to bounded project-scoped evidence. It groups repeated observer Git events by local day for chat summaries while leaving the raw timeline intact, adds local-day counts and earlier source-linked milestones, and uses snapshot-stable continuation. At the [recorded M1 8 GB Wi-Fi-off gate](phase10-offline-report.json), `qwen3:1.7b` selected source IDs only; deterministic rendering preserved verification labels and handled missing rationale without inventing an explanation. That gate passed the six questions below plus a named dashboard-rationale question; outbound TCP was unreachable and all returned citation IDs resolved. Python tests passed 48/48 and extension tests passed 12/12. The current chat also permits model-written introductions, which need separate accuracy validation as noted in [Phase 12](PHASE_12_VALIDATION.md). This focused gate does not close the Phase 12 VS Code visual, full workflow, resource, or broader accuracy checks.
 
 ### Objective
 
@@ -1127,7 +1127,7 @@ Answer questions about the project's history through local retrieval and `qwen3:
 - An answer about a missing rationale says it was not recorded. A claimed fix with no passing check is not presented as verified.
 - A fixture history larger than one model context window is covered by bounded retrieval and time-window summaries or clearly marked continuation; the process never sends the entire archive to the model.
 
-## Phase 11 — VS Code Chat and Memory Extension (Future)
+## Phase 11 — VS Code Chat and Memory Extension (Implemented; Editor Validation Open)
 
 **Target: 3–4 working days after Phase 10**
 
@@ -1148,7 +1148,7 @@ Give developers a clean, lightweight editor interface while keeping Python and S
 - A.R.C. Chat answers from local evidence, and A.R.C. Memory shows a new captured event and its source. Pause from the extension stops collection.
 - Closing and reopening VS Code restores the project view from SQLite; MCP and CLI still retrieve the same event IDs. No cloud AI or external database is required.
 
-## Phase 12 — Offline, Reliability, and Resource Validation (Future)
+## Phase 12 — Offline, Reliability, and Resource Validation (In Progress)
 
 **Target: 2–3 working days after Phase 11**
 
@@ -1167,7 +1167,7 @@ Make automatic tracking, long-term chat, and the extension dependable on the act
 
 On the Mac M1 8GB machine, a new developer can open a project in VS Code, have selected activity recorded automatically, ask local chat what happened, inspect supporting evidence, and retrieve the same state through MCP while disconnected. The observer remains usable during normal editing, the machine avoids sustained swap pressure during chat, excluded files stay out of memory, and unsupported completion claims remain unverified. Report observed resource and accuracy numbers rather than assumed targets.
 
-### References for this future design
+### References
 
 - [Ollama `qwen3:1.7b` model](https://ollama.com/library/qwen3:1.7b) for the proposed local conversation model.
 - [VS Code view containers and Tree View API](https://code.visualstudio.com/api/extension-guides/tree-view), [webview guidance](https://code.visualstudio.com/api/ux-guidelines/webviews), and [workspace/file-watcher/task APIs](https://code.visualstudio.com/api/references/vscode-api) for the extension plan.
@@ -1176,7 +1176,7 @@ On the Mac M1 8GB machine, a new developer can open a project in VS Code, have s
 
 # PART 8 — TEAM RESPONSIBILITIES
 
-The team has one implementation developer and one documentation/video lead. See [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md) for the current commands and implementation order, [DOCUMENTATION_AND_VIDEO.md](DOCUMENTATION_AND_VIDEO.md) for the teammate's deliverables, and [TEST_RESULTS.md](TEST_RESULTS.md) for actual results and missing evidence. Phases 8–12 remain future work.
+The team has one implementation developer and one documentation/video lead. See [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md) for the current commands and implementation order, [DOCUMENTATION_AND_VIDEO.md](DOCUMENTATION_AND_VIDEO.md) for the teammate's deliverables, and [TEST_RESULTS.md](TEST_RESULTS.md) for actual results and missing evidence. Phases 8–11 have working implementations; Phase 12 validation remains open.
 
 ## Implementation developer
 
