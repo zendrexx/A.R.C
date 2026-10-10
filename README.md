@@ -241,7 +241,7 @@ Restart Codex and ask: **“Call `arc_get_project_handoff`. What is unfinished, 
 | Check local model readiness | `arc ai-status` |
 | Use a different registered project | `arc --project /absolute/path/to/repository ...` |
 
-For the command reference and implementation details, see the [project workflow](docs/PROJECT_WORKFLOW.md) and [implementation notes](docs/IMPLEMENTATION.md). For recorded validation results and remaining release checks, see the [Phase 12 checklist](docs/PHASE_12_VALIDATION.md) and [test log](docs/TEST_RESULTS.md).
+For an end-to-end technical explanation of local AI, storage, retrieval, and evidence verification, see the [technical overview](docs/TECHNICAL_OVERVIEW.md). For the command reference and implementation details, see the [project workflow](docs/PROJECT_WORKFLOW.md) and [implementation notes](docs/IMPLEMENTATION.md). For recorded validation results and remaining release checks, see the [Phase 12 checklist](docs/PHASE_12_VALIDATION.md) and [test log](docs/TEST_RESULTS.md).
 
 ## Run the tests
 
